@@ -1,0 +1,19 @@
+services:
+  bia:
+    image: ${BIA_IMAGE}
+    container_name: bia
+    restart: unless-stopped
+    ports:
+      - "${BIA_PORT:-29090}:8080"
+    volumes:
+      - ${BIA_DATA_DIR:-./data}:/opt/maxkb
+    env_file:
+      - .env
+    environment:
+      MAXKB_DEBUG: ${MAXKB_DEBUG:-false}
+    healthcheck:
+      test: ["CMD", "bash", "-c", "wait-for-it 127.0.0.1:8080 --timeout=5 --strict"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 180s

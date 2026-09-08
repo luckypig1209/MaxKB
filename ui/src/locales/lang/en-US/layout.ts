@@ -38,7 +38,7 @@ export default {
     neverExpires: 'Never expires',
     daysValid: 'Days valid',
   },
-  copyright: 'Copyright © 2014-2026 FIT2CLOUD, All rights reserved.',
+  copyright: 'Copyright © 2026 China Telecom Hongxin Information Technology Co., Ltd.',
   userManualUrl: 'http://docs.maxkb.hk/',
   forumUrl: 'https://github.com/1Panel-dev/MaxKB/discussions',
 }

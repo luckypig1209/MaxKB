@@ -4,49 +4,49 @@ export const themeList = [
   {
     label: t('theme.default'),
     value: '#3370FF',
-    loginBackground: 'default',
+    loginBackground: 'hongxin',
   },
   {
     label: t('theme.orange'),
     value: '#FF8800',
-    loginBackground: 'orange',
+    loginBackground: 'hongxin',
   },
   {
     label: t('theme.green'),
     value: '#00B69D',
-    loginBackground: 'green',
+    loginBackground: 'hongxin',
   },
   {
     label: t('theme.purple'),
     value: '#7F3BF5',
-    loginBackground: 'purple',
+    loginBackground: 'hongxin',
   },
   {
     label: t('theme.red'),
     value: '#F01D94',
-    loginBackground: 'red',
+    loginBackground: 'hongxin',
   },
 ]
 
 export function getThemeImg(val: string) {
-  if (!val) return 'default'
-  return themeList.filter((v) => v.value === val)?.[0]?.loginBackground || 'default'
+  if (!val) return 'hongxin'
+  return themeList.filter((v) => v.value === val)?.[0]?.loginBackground || 'hongxin'
 }
 
 export const defaultSetting = {
   icon: '',
   loginLogo: '',
   loginImage: '',
-  title: 'MaxKB',
+  title: '商机智能分析系统',
   slogan: t('theme.defaultSlogan'),
 }
 
 export const defaultPlatformSetting = {
-  showUserManual: true,
+  showUserManual: false,
   userManualUrl: t('layout.userManualUrl'),
-  showForum: true,
+  showForum: false,
   forumUrl: t('layout.forumUrl'),
-  showProject: true,
+  showProject: false,
   projectUrl: 'https://github.com/1Panel-dev/MaxKB',
 }
 

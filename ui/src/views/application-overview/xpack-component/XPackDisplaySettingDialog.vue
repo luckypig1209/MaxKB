@@ -159,12 +159,7 @@
             fit="cover"
             style="width: 40px; height: 40px; display: block"
           />
-          <img
-            v-else
-            src="/MaxKB.gif"
-            height="50px"
-            style="width: 40px; height: 40px; display: block"
-          />
+          <LogoIcon v-else height="40px" style="width: 40px; display: block" />
         </div>
       </div>
       <el-scrollbar>

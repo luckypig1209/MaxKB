@@ -1,19 +1,36 @@
 FROM node:24-alpine AS web-build
+ARG BIA_CN_MIRROR=
 COPY ui ui
 RUN cd ui && ls -la && if [ -d "dist" ]; then exit 0; fi && \
+    if [ -n "${BIA_CN_MIRROR}" ]; then npm config set registry https://registry.npmmirror.com; unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy; fi && \
     npm install --prefer-offline --no-audit && \
-    npm install -D concurrently && \
-    NODE_OPTIONS="--max-old-space-size=4096" npx concurrently "npm run build" "npm run build-chat" && \
+    NODE_OPTIONS="--max-old-space-size=4096" npm run build && \
+    NODE_OPTIONS="--max-old-space-size=4096" npm run build-chat && \
     find . -maxdepth 1 ! -name '.' ! -name 'dist' ! -name 'public' -exec rm -rf {} +
 
 FROM ghcr.io/1panel-dev/maxkb-base:python3.11-pg17.11-20260903 AS stage-build
+ARG BIA_CN_MIRROR=
 COPY --chmod=700 . /opt/maxkb-app
-RUN apt-get update && \
+RUN if [ -n "${BIA_CN_MIRROR}" ]; then \
+      find /etc/apt -type f \( -name '*.list' -o -name '*.sources' \) -exec sed -i \
+        -e 's|http://deb.debian.org|https://mirrors.aliyun.com|g' \
+        -e 's|https://deb.debian.org|https://mirrors.aliyun.com|g' \
+        -e 's|http://security.debian.org|https://mirrors.aliyun.com|g' \
+        -e 's|https://security.debian.org|https://mirrors.aliyun.com|g' \
+        {} + && \
+      find /etc/apt -type f \( -name '*pgdg*' -o -name '*postgres*' \) -delete && \
+      unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy; \
+    fi && \
+    apt-get update && \
     apt-get install -y --no-install-recommends gcc g++ gettext libexpat1-dev libffi-dev && \
     apt-get clean all  && \
     rm -rf /var/lib/apt/lists/*
 WORKDIR /opt/maxkb-app
-RUN gcc -shared -fPIC -o ${MAXKB_SANDBOX_HOME}/lib/sandbox.so /opt/maxkb-app/installer/sandbox.c -ldl && \
+RUN if [ -n "${BIA_CN_MIRROR}" ]; then \
+      export UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple && \
+      unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy; \
+    fi && \
+    gcc -shared -fPIC -o ${MAXKB_SANDBOX_HOME}/lib/sandbox.so /opt/maxkb-app/installer/sandbox.c -ldl && \
     rm -rf /opt/maxkb-app/ui && \
     pip install uv --break-system-packages && \
     python -m uv pip install -r pyproject.toml && \

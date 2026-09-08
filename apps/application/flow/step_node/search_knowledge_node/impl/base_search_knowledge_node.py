@@ -6,51 +6,25 @@
     @date：2024/6/4 11:56
     @desc:
 """
-import os
 from typing import List, Dict
 
-from django.db import connection
 from django.db.models import QuerySet
 
 from application.flow.i_step_node import NodeResult
 from application.flow.step_node.search_knowledge_node.i_search_knowledge_node import ISearchKnowledgeStepNode
-from common.config.embedding_config import VectorStore
-from common.constants.permission_constants import RoleConstants
-from common.database_model_manage.database_model_manage import DatabaseModelManage
-from common.db.search import native_search
-from common.utils.common import get_file_content
-from common.utils.shared_resource_auth import filter_authorized_ids
-from knowledge.models import Document, Paragraph, Knowledge, SearchMode
-from maxkb.conf import PROJECT_DIR
-from models_provider.tools import get_model_instance_by_model_workspace_id
-
-
-def get_embedding_id(dataset_id_list):
-    dataset_list = QuerySet(Knowledge).filter(id__in=dataset_id_list)
-    if len(set([dataset.embedding_model_id for dataset in dataset_list])) > 1:
-        raise Exception("关联知识库的向量模型不一致，无法召回分段。")
-    if len(dataset_list) == 0:
-        raise Exception("知识库设置错误,请重新设置知识库")
-    return dataset_list[0].embedding_model_id
+from knowledge.models import Document
+from knowledge.services.knowledge_search_service import (
+    list_paragraph,
+    reset_paragraph,
+    reset_title,
+    search_knowledge,
+)
 
 
 def get_none_result(question):
     return NodeResult(
         {'paragraph_list': [], 'is_hit_handling_method': [], 'question': question, 'data': '',
          'directly_return': ''}, {})
-
-
-def reset_title(title):
-    if title is None or len(title.strip()) == 0:
-        return ""
-    else:
-        return f"#### {title}\n"
-
-
-def reset_meta(meta):
-    if not meta.get('allow_download', False):
-        return {'allow_download': False}
-    return meta
 
 
 class BaseSearchKnowledgeNode(ISearchKnowledgeStepNode):
@@ -93,35 +67,22 @@ class BaseSearchKnowledgeNode(ISearchKnowledgeStepNode):
                     'knowledge_id', flat=True
                 ).distinct()]
 
-        get_knowledge_list_of_authorized = DatabaseModelManage.get_model('get_knowledge_list_of_authorized')
-        chat_user_type = self.workflow_manage.get_body().get('chat_user_type')
-        if get_knowledge_list_of_authorized is not None and RoleConstants.CHAT_USER.value.name == chat_user_type:
-            knowledge_id_list = get_knowledge_list_of_authorized(self.workflow_manage.get_body().get('chat_user_id'),
-                                                                 knowledge_id_list)
         workspace_id = self.workflow_manage.get_body().get('workspace_id')
-        knowledge_id_list = filter_authorized_ids('knowledge', knowledge_id_list, workspace_id)
-        if len(knowledge_id_list) == 0:
+        result = search_knowledge(
+            workspace_id=workspace_id,
+            knowledge_id_list=knowledge_id_list,
+            question=question,
+            search_mode=knowledge_setting.get('search_mode'),
+            top_n=knowledge_setting.get('top_n'),
+            similarity=knowledge_setting.get('similarity'),
+            document_id_list=document_id_list,
+            exclude_paragraph_id_list=exclude_paragraph_id_list,
+            chat_user_type=self.workflow_manage.get_body().get('chat_user_type'),
+            chat_user_id=self.workflow_manage.get_body().get('chat_user_id'),
+            authorize=True,
+        )
+        if not result:
             return get_none_result(question)
-        model_id = get_embedding_id(knowledge_id_list)
-        embedding_model = get_model_instance_by_model_workspace_id(model_id, workspace_id)
-        embedding_value = embedding_model.embed_query(question)
-        vector = VectorStore.get_embedding_vector()
-        exclude_document_id_list = [str(document.id) for document in
-                                    QuerySet(Document).filter(
-                                        knowledge_id__in=knowledge_id_list,
-                                        is_active=False)]
-        embedding_list = vector.query(question, embedding_value, knowledge_id_list, document_id_list,
-                                      exclude_document_id_list,
-                                      exclude_paragraph_id_list, True, knowledge_setting.get('top_n'),
-                                      knowledge_setting.get('similarity'),
-                                      SearchMode(knowledge_setting.get('search_mode')))
-        # 手动关闭数据库连接
-        connection.close()
-        if embedding_list is None:
-            return get_none_result(question)
-        paragraph_list = self.list_paragraph(embedding_list, vector)
-        result = [self.reset_paragraph(paragraph, embedding_list) for paragraph in paragraph_list]
-        result = sorted(result, key=lambda p: p.get('similarity'), reverse=True)
         return NodeResult({'paragraph_list': result,
                            'is_hit_handling_method_list': [row for row in result if row.get('is_hit_handling_method')],
                            'data': '\n'.join(
@@ -137,40 +98,11 @@ class BaseSearchKnowledgeNode(ISearchKnowledgeStepNode):
 
     @staticmethod
     def reset_paragraph(paragraph: Dict, embedding_list: List):
-        filter_embedding_list = [embedding for embedding in embedding_list if
-                                 str(embedding.get('paragraph_id')) == str(paragraph.get('id'))]
-        if filter_embedding_list is not None and len(filter_embedding_list) > 0:
-            find_embedding = filter_embedding_list[-1]
-            return {
-                **paragraph,
-                'similarity': find_embedding.get('similarity'),
-                'is_hit_handling_method': find_embedding.get('similarity') > paragraph.get(
-                    'directly_return_similarity') and paragraph.get('hit_handling_method') == 'directly_return',
-                'update_time': paragraph.get('update_time').strftime("%Y-%m-%d %H:%M:%S"),
-                'create_time': paragraph.get('create_time').strftime("%Y-%m-%d %H:%M:%S"),
-                'id': str(paragraph.get('id')),
-                'knowledge_id': str(paragraph.get('knowledge_id')),
-                'document_id': str(paragraph.get('document_id')),
-                'meta': reset_meta(paragraph.get('meta'))
-            }
+        return reset_paragraph(paragraph, embedding_list)
 
     @staticmethod
     def list_paragraph(embedding_list: List, vector):
-        paragraph_id_list = [row.get('paragraph_id') for row in embedding_list]
-        if paragraph_id_list is None or len(paragraph_id_list) == 0:
-            return []
-        paragraph_list = native_search(QuerySet(Paragraph).filter(id__in=paragraph_id_list),
-                                       get_file_content(
-                                           os.path.join(PROJECT_DIR, "apps", "application", 'sql',
-                                                        'list_knowledge_paragraph_by_paragraph_id.sql')),
-                                       with_table_name=True)
-        # 如果向量库中存在脏数据 直接删除
-        if len(paragraph_list) != len(paragraph_id_list):
-            exist_paragraph_list = [row.get('id') for row in paragraph_list]
-            for paragraph_id in paragraph_id_list:
-                if not exist_paragraph_list.__contains__(paragraph_id):
-                    vector.delete_by_paragraph_id(paragraph_id)
-        return paragraph_list
+        return list_paragraph(embedding_list, vector)
 
     def get_details(self, index: int, **kwargs):
         return {

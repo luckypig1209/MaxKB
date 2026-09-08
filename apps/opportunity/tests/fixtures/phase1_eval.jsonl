@@ -1,0 +1,20 @@
+{"case_id": "CASE-001", "question": "医疗影像云需要统一监控、自动告警、尽量零侵入并快速上线", "expected_products": ["YIGUAN"], "must_requirements": ["统一监控", "零侵入"], "forbidden_claims": ["未声明容量上限"]}
+{"case_id": "CASE-002", "question": "医院信息科希望把主机、交换机和中间件放到一个平台里看", "expected_products": ["YIGUAN"], "must_requirements": ["统一监控"], "forbidden_claims": []}
+{"case_id": "CASE-003", "question": "需要零侵入采集，不能在业务主机上安装重代理", "expected_products": ["YIGUAN"], "must_requirements": ["零侵入"], "forbidden_claims": []}
+{"case_id": "CASE-004", "question": "影像云要有故障自动告警并能快速定位", "expected_products": ["YIGUAN"], "must_requirements": ["自动告警"], "forbidden_claims": []}
+{"case_id": "CASE-005", "question": "两周内完成试点上线，尽量少改现网", "expected_products": ["YIGUAN"], "must_requirements": ["快速上线"], "forbidden_claims": []}
+{"case_id": "CASE-006", "question": "需要监控物理机、虚拟机和网络设备", "expected_products": ["YIGUAN"], "must_requirements": ["统一监控"], "forbidden_claims": []}
+{"case_id": "CASE-007", "question": "医疗行业统一运维，关注告警收敛", "expected_products": ["YIGUAN"], "must_requirements": ["自动告警"], "forbidden_claims": []}
+{"case_id": "CASE-008", "question": "现有Zabbix太重，希望更轻量的云监控", "expected_products": ["YIGUAN"], "must_requirements": ["零侵入"], "forbidden_claims": []}
+{"case_id": "CASE-009", "question": "影像存储集群需要容量和性能监控", "expected_products": ["YIGUAN"], "must_requirements": ["统一监控"], "forbidden_claims": ["未声明容量上限"]}
+{"case_id": "CASE-010", "question": "需要支持混合云和专病云统一观测", "expected_products": ["YIGUAN"], "must_requirements": ["统一监控"], "forbidden_claims": []}
+{"case_id": "CASE-011", "question": "要求必须国产化信创数据库替换且不能使用现有监控产品", "expected_products": [], "must_requirements": ["信创替换"], "forbidden_claims": []}
+{"case_id": "CASE-012", "question": "只要办公OA流程系统，不需要基础设施监控", "expected_products": [], "must_requirements": ["OA流程"], "forbidden_claims": []}
+{"case_id": "CASE-013", "question": "需要PACS深度功能定制开发而不是标准监控", "expected_products": [], "must_requirements": ["PACS定制"], "forbidden_claims": []}
+{"case_id": "CASE-014", "question": "统一监控主机网络中间件，但客户坚持必须完全离线且无任何采集", "expected_products": ["YIGUAN"], "must_requirements": ["统一监控"], "forbidden_claims": []}
+{"case_id": "CASE-015", "question": "医院分院区需要集中告警和值班看板", "expected_products": ["YIGUAN"], "must_requirements": ["自动告警"], "forbidden_claims": []}
+{"case_id": "CASE-016", "question": "需要快速上线的医疗云监控，最好有讲解词依据", "expected_products": ["YIGUAN"], "must_requirements": ["快速上线"], "forbidden_claims": []}
+{"case_id": "CASE-017", "question": "IT资源太多，故障发现太晚，希望统一监控", "expected_products": ["YIGUAN"], "must_requirements": ["统一监控"], "forbidden_claims": []}
+{"case_id": "CASE-018", "question": "希望尽量不改业务系统就能看到基础设施状态", "expected_products": ["YIGUAN"], "must_requirements": ["零侵入"], "forbidden_claims": []}
+{"case_id": "CASE-019", "question": "请推荐一个能覆盖主机、网络、中间件的监控产品", "expected_products": ["YIGUAN"], "must_requirements": ["统一监控"], "forbidden_claims": []}
+{"case_id": "CASE-020", "question": "医疗影像云运维，关注告警、巡检和快速交付", "expected_products": ["YIGUAN"], "must_requirements": ["自动告警", "快速上线"], "forbidden_claims": []}

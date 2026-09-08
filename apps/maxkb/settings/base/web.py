@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'chat',
     'oss',
     'trigger',
+    'opportunity.apps.OpportunityConfig',
     'django_apscheduler',
 ]
 
@@ -57,6 +58,7 @@ MIDDLEWARE = [
     'common.middleware.chat_headers_middleware.ChatHeadersMiddleware',
     'common.middleware.cross_domain_middleware.CrossDomainMiddleware',
     'common.middleware.doc_headers_middleware.DocHeadersMiddleware',
+    'opportunity.middleware.OpportunityEmbedHeadersMiddleware',
 
 ]
 

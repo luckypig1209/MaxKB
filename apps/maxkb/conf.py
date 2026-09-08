@@ -51,7 +51,10 @@ class Config(dict):
     }
 
     def get_debug(self) -> bool:
-        return self.get("DEBUG") if "DEBUG" in self else True
+        value = self.get("DEBUG") if "DEBUG" in self else True
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
 
     def get_time_zone(self) -> str:
         return self.get("TIME_ZONE") if "TIME_ZONE" in self else "Asia/Shanghai"

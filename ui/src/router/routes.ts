@@ -89,6 +89,11 @@ export const routes: Array<RouteRecordRaw> = [
     component: () => import('@/views/chat/index.vue'),
   },
   {
+    path: '/opportunity/embed/:clientId',
+    name: 'OpportunityEmbed',
+    component: () => import('@/views/opportunity/embed/index.vue'),
+  },
+  {
     path: '/demo',
     name: 'demo',
     component: () => import('@/views/demo/index.vue'),
