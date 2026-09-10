@@ -36,6 +36,6 @@ const submit = () => {
   line-height: 1.7;
 }
 .color-secondary {
-  color: var(--el-text-color-secondary);
+  color: var(--muted);
 }
 </style>

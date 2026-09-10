@@ -1,8 +1,8 @@
-·
 <template>
   <div class="app-top-bar-container border-b flex-center">
-    <div class="logo mt-4">
+    <div class="logo mt-4 flex align-center">
       <LogoFull />
+      <span class="hx-product-name">商机智能分析</span>
     </div>
 
     <div class="flex-between w-full align-center">

@@ -70,31 +70,31 @@ const alertType = computed(() => {
   gap: 10px;
   align-items: flex-start;
   padding: 6px 0;
-  color: var(--el-text-color-secondary);
+  color: var(--muted);
 }
 .step-list li.active {
-  color: var(--el-color-primary);
+  color: var(--accent);
 }
 .step-list li.done {
-  color: var(--el-color-success);
+  color: var(--green);
 }
 .dot {
-  width: 10px;
-  height: 10px;
+  width: 7px;
+  height: 7px;
   margin-top: 6px;
   border-radius: 50%;
-  background: var(--el-border-color);
+  background: var(--line2);
   flex-shrink: 0;
 }
 .done .dot {
-  background: var(--el-color-success);
+  background: var(--green);
 }
 .active .dot {
-  background: var(--el-color-primary);
-  box-shadow: 0 0 0 4px var(--el-color-primary-light-8);
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
 }
 .step-detail {
   margin: 4px 0 0;
-  font-size: 13px;
+  font-size: 12.5px;
 }
 </style>

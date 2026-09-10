@@ -1,11 +1,12 @@
 <template>
-  <div class="opportunity-page p-16-24">
-    <div class="flex-between mb-16">
-      <div>
-        <h2>{{ $t('views.opportunity.title') }}</h2>
-        <p class="color-secondary mt-4">{{ $t('views.opportunity.subtitle') }}</p>
-      </div>
-      <div>
+  <div class="hx-pmain opportunity-page hx-tool-page">
+    <HxOverview
+      :title="$t('views.opportunity.title')"
+      :context="$t('views.opportunity.subtitle')"
+      :metrics="overviewMetrics"
+    >
+      <template #actions>
+        <el-button @click="$router.push('/opportunity/records')">{{ $t('views.opportunity.myRecords') }}</el-button>
         <el-button
           v-if="hasPermission(RoleConst.WORKSPACE_MANAGE.getWorkspaceRole, 'OR')"
           @click="$router.push('/opportunity/cases')"
@@ -14,100 +15,103 @@
           v-if="hasPermission(RoleConst.WORKSPACE_MANAGE.getWorkspaceRole, 'OR')"
           @click="$router.push('/opportunity/settings')"
         >{{ $t('views.opportunity.settings') }}</el-button>
-      </div>
-    </div>
-    <el-row :gutter="16">
-      <el-col :span="8">
-        <el-card>
+      </template>
+    </HxOverview>
+    <div class="hx-workspace">
+      <aside>
+        <section class="hx-panel">
+          <h3 class="hx-panel__title">{{ $t('views.opportunity.create') }}</h3>
           <RequirementInput
             v-model="requirement"
             :loading="creating"
+            :primary="!analysis"
             @submit="onCreate"
           />
-        </el-card>
-        <el-card class="mt-16">
-          <template #header>{{ $t('views.opportunity.history') }}</template>
-          <el-empty v-if="history.length === 0" :description="$t('views.opportunity.noHistory')" />
-          <el-timeline v-else>
-            <el-timeline-item
+        </section>
+        <section class="hx-panel">
+          <h3 class="hx-panel__title">{{ $t('views.opportunity.history') }}</h3>
+          <div v-if="history.length === 0" class="hx-empty">{{ $t('views.opportunity.noHistory') }}</div>
+          <div v-else class="history-list">
+            <button
               v-for="item in history"
               :key="item.id"
-              :timestamp="item.create_time"
+              type="button"
+              class="hx-rcard"
+              :class="{ 'is-on': analysis?.id === item.id }"
               @click="openAnalysis(item.id)"
-              class="cursor"
-              :class="{ 'is-active-history': analysis?.id === item.id }"
             >
-              <div>{{ statusLabel(item.status) }}</div>
-              <div class="ellipsis-2 color-secondary">{{ item.original_requirement }}</div>
-            </el-timeline-item>
-          </el-timeline>
-        </el-card>
-      </el-col>
-      <el-col :span="16">
-        <el-card v-loading="loading">
-          <el-empty v-if="!analysis" :description="$t('views.opportunity.emptyResultHint')" />
-          <template v-else>
-            <AnalysisProgress
-              :status="analysis.status"
-              :error="analysis.error_message"
-              :progress="analysis.result_snapshot?.progress"
-            />
-            <CandidateCards
-              v-if="candidates.length"
-              class="mt-16"
-              :candidates="candidates"
-              :selected-code="selectedCode"
-              @select="selectedCode = $event"
-              @open-evidence="openEvidence"
-            />
-            <ClarificationPanel
-              v-if="analysis.status === 'NEED_CLARIFICATION'"
-              class="mt-16"
-              :questions="analysis.clarification_questions || []"
-              :loading="creating"
-              @submit="onClarify"
-            />
-            <AnalysisActions
-              v-if="analysis.status !== 'ANALYZING'"
-              class="mt-16"
-              :analysis="analysis"
-              :selected="selectedCode"
-              @decision="onDecision"
-              @retry="onRetry"
-              @export="onExport"
-            />
-            <RequirementProfilePanel
-              v-if="analysis.requirement_profile"
-              class="mt-16"
-              :profile="analysis.requirement_profile"
-              :version="analysis.requirement_profile_version"
-              @show-history="requirementHistoryVisible = true"
-            />
-            <el-collapse v-if="candidates.length" class="mt-16">
-              <el-collapse-item :title="$t('views.opportunity.matchDetail')" name="matrix">
-                <MatchMatrix
-                  :requirements="analysis.requirement_profile?.requirements || []"
-                  :candidates="candidates"
-                  @open-evidence="openEvidence"
-                />
-              </el-collapse-item>
-            </el-collapse>
-            <CaseReferences
-              v-if="candidates.length || analysis.result_snapshot?.case_enhancement"
-              class="mt-16"
-              :candidates="candidates"
-              :enhancement="analysis.result_snapshot?.case_enhancement"
-              @open-evidence="openEvidence"
-            />
-            <AuditTimeline
-              class="mt-16"
-              :logs="analysis.audit_logs || []"
-              :report="analysis.report"
-            />
-          </template>
-        </el-card>
-      </el-col>
-    </el-row>
+              <div class="flex-between">
+                <span class="hx-tag" :class="statusTone(item.status)">{{ statusLabel(item.status) }}</span>
+                <span class="history-time">{{ formatTime(item.create_time) }}</span>
+              </div>
+              <p class="ellipsis-2 history-text">{{ item.original_requirement }}</p>
+            </button>
+          </div>
+        </section>
+      </aside>
+      <section class="hx-panel" v-loading="loading">
+        <div v-if="!analysis" class="hx-empty">{{ $t('views.opportunity.emptyResultHint') }}</div>
+        <template v-else>
+          <AnalysisProgress
+            :status="analysis.status"
+            :error="analysis.error_message"
+            :progress="analysis.result_snapshot?.progress"
+          />
+          <CandidateCards
+            v-if="candidates.length"
+            class="mt-16"
+            :candidates="candidates"
+            :selected-code="selectedCode"
+            @select="selectedCode = $event"
+            @open-evidence="openEvidence"
+          />
+          <ClarificationPanel
+            v-if="analysis.status === 'NEED_CLARIFICATION'"
+            class="mt-16"
+            :questions="analysis.clarification_questions || []"
+            :loading="creating"
+            @submit="onClarify"
+          />
+          <AnalysisActions
+            v-if="analysis.status !== 'ANALYZING'"
+            class="mt-16"
+            :analysis="analysis"
+            :selected="selectedCode"
+            @decision="onDecision"
+            @retry="onRetry"
+            @export="onExport"
+          />
+          <RequirementProfilePanel
+            v-if="analysis.requirement_profile"
+            class="mt-16"
+            :profile="analysis.requirement_profile"
+            :version="analysis.requirement_profile_version"
+            @show-history="requirementHistoryVisible = true"
+          />
+          <el-collapse v-if="candidates.length" class="mt-16">
+            <el-collapse-item :title="$t('views.opportunity.matchDetail')" name="matrix">
+              <MatchMatrix
+                :requirements="analysis.requirement_profile?.requirements || []"
+                :candidates="candidates"
+                @open-evidence="openEvidence"
+              />
+            </el-collapse-item>
+          </el-collapse>
+          <CaseReferences
+            v-if="candidates.length || analysis.result_snapshot?.case_enhancement"
+            class="mt-16"
+            :candidates="candidates"
+            :enhancement="analysis.result_snapshot?.case_enhancement"
+            @open-evidence="openEvidence"
+          />
+          <AuditTimeline
+            class="mt-16"
+            :logs="analysis.audit_logs || []"
+            :report="analysis.report"
+          />
+        </template>
+      </section>
+    </div>
     <EvidenceDrawer v-model="evidenceVisible" :evidence="activeEvidence" />
     <RequirementHistoryDrawer
       v-model="requirementHistoryVisible"
@@ -136,6 +140,7 @@ import AnalysisActions from './components/AnalysisActions.vue'
 import CaseReferences from './components/CaseReferences.vue'
 import AuditTimeline from './components/AuditTimeline.vue'
 import RequirementHistoryDrawer from './components/RequirementHistoryDrawer.vue'
+import HxOverview from './components/HxOverview.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -158,6 +163,22 @@ const candidates = computed(() =>
     .sort((a, b) => (a.rank || 99) - (b.rank || 99)),
 )
 
+const overviewMetrics = computed(() => [
+  { label: '当前列表', value: history.value.length, hint: '最近 10 条' },
+  { label: '当前状态', value: analysis.value ? statusLabel(analysis.value.status) : '未选择' },
+  { label: '候选产品', value: candidates.value.length, hint: '当前分析' },
+])
+
+const statusTone = (status?: string) => {
+  if (status === 'CONFIRMED') return 'is-ok'
+  if (status === 'FAILED') return 'is-bad'
+  if (status === 'NEED_CLARIFICATION' || status === 'WAITING_CONFIRMATION') return 'is-warn'
+  if (status === 'ANALYZING') return 'is-on'
+  return ''
+}
+
+const formatTime = (value?: string) => (value ? value.replace('T', ' ').slice(0, 16) : '-')
+
 const statusLabel = (status?: string) => {
   const map: Record<string, string> = {
     ANALYZING: t('views.opportunity.analyzing'),
@@ -167,7 +188,7 @@ const statusLabel = (status?: string) => {
     FAILED: t('views.opportunity.failed'),
     CLOSED: t('views.opportunity.closed'),
   }
-  return map[status || ''] || status
+  return map[status || ''] || status || '-'
 }
 
 const loadHistory = () => {
@@ -253,12 +274,15 @@ const onDecision = (
   ElMessageBox.prompt('请填写本次操作说明（可选）', '商机决策', {
     confirmButtonText: '确认', cancelButtonText: '取消', inputPlaceholder: '例如：进入技术确认或不适配原因',
   }).then(({ value }) => {
-    opportunityApi.submitDecision(analysis.value!.id, {
-      action, product_code: productCode, reason: value || '',
-    }).then((res) => {
-      analysis.value = res.data
-      loadHistory()
-    })
+      opportunityApi.submitDecision(analysis.value!.id, {
+        action, product_code: productCode, reason: value || '',
+      }).then((res) => {
+        analysis.value = res.data
+        loadHistory()
+        if (action === 'ACCEPT' || action === 'RESELECT') {
+          ElMessage.success(t('views.opportunity.recordCreatedHint'))
+        }
+      })
   }).catch(() => undefined)
 }
 
@@ -295,19 +319,24 @@ loadHistory()
 onUnmounted(stopPoll)
 </script>
 <style scoped>
-.cursor {
-  cursor: pointer;
+.history-list {
+  display: grid;
+  gap: 10px;
+}
+.history-time {
+  font-size: 11px;
+  color: var(--muted);
+}
+.history-text {
+  margin: 8px 0 0;
+  color: var(--ink2);
+  font-size: 12.5px;
+  line-height: 1.5;
 }
 .ellipsis-2 {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-}
-.color-secondary {
-  color: var(--el-text-color-secondary);
-}
-.is-active-history {
-  font-weight: 600;
 }
 </style>

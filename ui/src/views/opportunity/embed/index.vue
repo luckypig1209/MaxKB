@@ -1,5 +1,5 @@
 <template>
-  <div class="embed-shell">
+  <div class="embed-shell hx-tool-page">
     <header class="embed-header">
       <div class="brand">
         <LogoFull height="34px" />
@@ -13,36 +13,39 @@
       <el-icon v-else color="var(--el-color-danger)" :size="40"><CircleClose /></el-icon>
       <h2>{{ state === 'ERROR' ? '暂时无法进入商机分析' : '正在建立安全会话' }}</h2>
       <p>{{ errorMessage || '请稍候，系统正在验证业务身份与访问范围。' }}</p>
-      <el-button v-if="state === 'ERROR'" @click="announceReady">重新连接</el-button>
+      <el-button v-if="state === 'ERROR'" type="primary" @click="announceReady">重新连接</el-button>
     </main>
 
     <main v-else class="embed-content">
-      <el-row :gutter="16">
-        <el-col :xs="24" :lg="8">
-          <el-card shadow="never">
-            <RequirementInput v-model="requirement" :loading="submitting" @submit="onCreate" />
-          </el-card>
-          <el-card class="mt-16" shadow="never">
-            <template #header>最近商机</template>
-            <el-empty v-if="history.length === 0" description="暂无分析记录" />
-            <el-timeline v-else>
-              <el-timeline-item
+      <div class="hx-workspace">
+        <aside>
+          <section class="hx-panel">
+            <h3 class="hx-panel__title">开始分析</h3>
+            <RequirementInput v-model="requirement" :loading="submitting" :primary="!analysis" @submit="onCreate" />
+          </section>
+          <section class="hx-panel">
+            <h3 class="hx-panel__title">最近商机</h3>
+            <div v-if="history.length === 0" class="hx-empty">暂无分析记录</div>
+            <div v-else class="history-list">
+              <button
                 v-for="item in history"
                 :key="item.id"
-                :timestamp="item.create_time"
-                class="history-item"
+                type="button"
+                class="hx-rcard"
+                :class="{ 'is-on': analysis?.id === item.id }"
                 @click="loadAnalysis(item.id)"
               >
-                <div>{{ statusLabel(item.status) }}</div>
-                <div class="ellipsis-2 color-secondary">{{ item.original_requirement }}</div>
-              </el-timeline-item>
-            </el-timeline>
-          </el-card>
-        </el-col>
-        <el-col :xs="24" :lg="16">
-          <el-card v-loading="loading" shadow="never">
-            <el-empty v-if="!analysis" description="提交需求后将在这里展示匹配结果" />
-            <template v-else>
+                <div class="flex-between">
+                  <span class="hx-tag">{{ statusLabel(item.status) }}</span>
+                </div>
+                <p class="ellipsis-2 history-text">{{ item.original_requirement }}</p>
+              </button>
+            </div>
+          </section>
+        </aside>
+        <section class="hx-panel" v-loading="loading">
+          <div v-if="!analysis" class="hx-empty">提交需求后将在这里展示匹配结果</div>
+          <template v-else>
               <AnalysisProgress :status="analysis.status" :error="analysis.error_message" />
               <RequirementProfilePanel
                 v-if="analysis.requirement_profile"
@@ -78,10 +81,9 @@
                 @retry="onRetry"
                 @export="onExport"
               />
-            </template>
-          </el-card>
-        </el-col>
-      </el-row>
+          </template>
+        </section>
+      </div>
     </main>
     <EvidenceDrawer v-model="evidenceVisible" :evidence="activeEvidence" />
   </div>
@@ -329,14 +331,15 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.embed-shell { min-height: 100vh; background: var(--el-bg-color-page); }
-.embed-header { height: 64px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; background: var(--el-bg-color); border-bottom: 1px solid var(--el-border-color-light); }
-.brand { display: flex; align-items: center; gap: 18px; font-size: 18px; font-weight: 600; }
-.session-user, .color-secondary { color: var(--el-text-color-secondary); }
+.embed-shell { min-height: 100vh; background: var(--canvas); }
+.embed-header { height: 64px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; background: var(--surface); border-bottom: 1px solid var(--line); }
+.brand { display: flex; align-items: center; gap: 18px; font-size: 16px; font-weight: 700; color: var(--ink); }
+.session-user, .color-secondary { color: var(--muted); }
 .state-panel { min-height: calc(100vh - 64px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; }
 .state-panel h2, .state-panel p { margin: 0; }
-.embed-content { padding: 16px 24px; }
-.history-item { cursor: pointer; }
+.embed-content { padding: 24px 24px 80px; }
+.history-list { display: grid; gap: 10px; }
+.history-text { margin: 8px 0 0; color: var(--ink2); font-size: 12.5px; line-height: 1.5; }
 .ellipsis-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-@media (max-width: 1199px) { .embed-content { padding: 12px; } .embed-content :deep(.el-col + .el-col) { margin-top: 16px; } }
+@media (max-width: 1199px) { .embed-content { padding: 0 12px 40px; } }
 </style>

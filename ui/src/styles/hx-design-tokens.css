@@ -1,0 +1,26 @@
+/* 鸿信设计 Tokens。源文件: agents/design/hx-design-tokens.css
+   本文件只注入变量，不覆盖全局 body / Element Plus 组件类。 */
+:root {
+  --canvas: #e7edf6;
+  --surface: #ffffff;
+  --surface2: #f4f8fd;
+  --ink: #172030;
+  --ink2: #3d4452;
+  --muted: #6f7686;
+  --faint: #9aa1b2;
+  --line: #e6ecf4;
+  --line2: #dce3ee;
+  --accent: #6c5ce7;
+  --accent-ink: #5546c8;
+  --accent-soft: #eeebfd;
+  --green: #1f9d5c;
+  --green-s: #e3f6ec;
+  --amber: #c2871a;
+  --amber-s: #fbf2dc;
+  --red: #d8492f;
+  --red-s: #fdeae5;
+  --shadow: 0 1px 2px rgba(20, 25, 55, 0.04), 0 10px 26px -14px rgba(20, 25, 55, 0.13);
+  --shadow-lg: 0 28px 70px -22px rgba(20, 25, 55, 0.3);
+  --accent-glow: 0 8px 20px -9px rgba(108, 92, 231, 0.5);
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}

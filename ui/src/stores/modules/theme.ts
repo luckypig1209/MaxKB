@@ -6,7 +6,13 @@ import type {Ref} from "vue";
 export interface themeStateTypes {
   themeInfo: any
 }
-const defalueColor = '#3370FF'
+const MAXKB_BLUE = '#3370FF'
+const defalueColor = '#6c5ce7'
+
+function resolveProductTheme(color?: string) {
+  if (!color || color.toUpperCase() === MAXKB_BLUE) return defalueColor
+  return color
+}
 
 const useThemeStore = defineStore('theme', {
   state: (): themeStateTypes => ({
@@ -14,12 +20,14 @@ const useThemeStore = defineStore('theme', {
   }),
   actions: {
     isDefaultTheme() {
-      return !this.themeInfo?.theme || this.themeInfo?.theme === defalueColor
+      const theme = this.themeInfo?.theme
+      return !theme || resolveProductTheme(theme) === defalueColor
     },
 
     setTheme(data?: any) {
-      const { changeTheme } = useElementPlusTheme(this.themeInfo?.theme || defalueColor)
-      changeTheme(data?.['theme'] || defalueColor)
+      const next = resolveProductTheme(data?.theme || this.themeInfo?.theme)
+      const { changeTheme } = useElementPlusTheme(resolveProductTheme(this.themeInfo?.theme))
+      changeTheme(next)
       this.themeInfo = cloneDeep(data)
     },
 

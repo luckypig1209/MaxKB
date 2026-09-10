@@ -1,11 +1,11 @@
 :root {
-  --el-color-primary: #3370ff;
-  --el-color-success: #34c724;
-  --el-text-color-primary: #1f2329;
-  --el-text-color-primary-rgb: 31, 35, 41;
-  --el-border-radius-base: 6px;
+  --el-color-primary: var(--accent);
+  --el-color-success: var(--green);
+  --el-text-color-primary: var(--ink);
+  --el-text-color-primary-rgb: 23, 32, 48;
+  --el-border-radius-base: 8px;
   --el-menu-item-height: 45px;
-  --el-border-color: #dee0e3;
+  --el-border-color: var(--line);
 }
 
 .el-avatar {
@@ -22,19 +22,20 @@
 // card
 .el-card {
   --el-card-padding: calc(var(--app-base-px) * 2);
-  --el-card-border-radius: 6px;
-  box-shadow: 0px 2px 4px 0px rgba(var(--el-text-color-primary-rgb), 0.12) !important;
+  --el-card-border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(20, 25, 55, 0.04) !important;
+  border: 1px solid var(--line);
   --el-border-color-light: var(--el-border-color);
   overflow: visible;
   &.is-never-shadow {
-    border: 1px solid var(--el-card-border-color);
+    border: 1px solid var(--line);
     box-shadow: none !important;
   }
   .el-card__body {
     overflow: inherit;
   }
   &.is-hover-shadow:hover {
-    box-shadow: 0px 6px 24px 0px rgba(var(--el-text-color-primary-rgb), 0.08) !important;
+    box-shadow: var(--shadow) !important;
   }
 }
 

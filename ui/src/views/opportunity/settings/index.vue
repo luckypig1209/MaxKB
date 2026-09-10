@@ -1,17 +1,18 @@
 <template>
-  <div class="p-16-24 settings-page">
-    <div class="flex-between mb-16">
-      <div>
-        <h2>{{ $t('views.opportunity.settings') }}</h2>
-        <p class="color-secondary mt-4">{{ $t('views.opportunity.settingsIntro') }}</p>
-      </div>
-      <div>
+  <div class="hx-pmain settings-page hx-tool-page">
+    <HxOverview
+      :title="$t('views.opportunity.settings')"
+      :context="$t('views.opportunity.settingsIntro')"
+      :metrics="overviewMetrics"
+    >
+      <template #actions>
         <el-button @click="$router.push('/opportunity/cases')">{{ $t('views.opportunity.caseManagement') }}</el-button>
         <el-button @click="$router.push('/opportunity')">{{ $t('views.opportunity.backToAnalysis') }}</el-button>
-      </div>
-    </div>
+      </template>
+    </HxOverview>
 
-    <el-tabs v-model="activeTab" type="border-card" class="settings-tabs">
+    <div class="hx-panel">
+    <el-tabs v-model="activeTab" class="settings-tabs">
       <el-tab-pane :label="$t('views.opportunity.engineTab')" name="engine">
         <p class="tab-intro">{{ $t('views.opportunity.engineHint') }}</p>
         <el-descriptions :column="1" border class="bind-status mb-16" size="small">
@@ -269,6 +270,7 @@
         </el-table>
       </el-tab-pane>
     </el-tabs>
+    </div>
 
     <el-dialog v-model="secretVisible" :title="$t('views.opportunity.saveCredential')" width="620px" :close-on-click-modal="false">
       <el-alert type="warning" :closable="false" show-icon>
@@ -306,6 +308,7 @@ import type {
   OpportunitySetting,
   ProductProfile,
 } from '@/api/type/opportunity'
+import HxOverview from '../components/HxOverview.vue'
 
 const TAB_NAMES = ['engine', 'department', 'product', 'embed'] as const
 type TabName = (typeof TAB_NAMES)[number]
@@ -337,6 +340,13 @@ const embedOrigins = ref('')
 const embedForm = reactive({ name: '', token_ttl_seconds: 300 })
 const secretVisible = ref(false)
 const issuedCredential = reactive({ client_id: '', client_secret: '', embed_path: '' })
+
+const overviewMetrics = computed(() => [
+  { label: '分析引擎', value: setting.llm_model_id && setting.product_knowledge_id ? '已绑定' : '未绑定' },
+  { label: '部门主数据', value: departments.value.length, hint: '当前列表' },
+  { label: '产品主数据', value: products.value.length, hint: '当前列表' },
+  { label: '嵌入接入', value: embedClients.value.length, hint: '当前列表' },
+])
 const modelOptions = ref<Record<string, any[]>>({})
 const knowledgeList = ref<Array<{ id: string; name: string }>>([])
 
@@ -531,10 +541,10 @@ onMounted(loadAll)
 
 <style scoped>
 .settings-page .color-secondary {
-  color: var(--el-text-color-secondary);
+  color: var(--muted);
 }
 .tab-intro {
-  color: var(--el-text-color-secondary);
+  color: var(--muted);
   margin: 0 0 16px;
   line-height: 1.6;
 }
@@ -542,10 +552,10 @@ onMounted(loadAll)
   max-width: 880px;
 }
 .bind-ok {
-  color: var(--el-color-success);
+  color: var(--green);
 }
 .bind-miss {
-  color: var(--el-color-danger);
+  color: var(--red);
 }
 .settings-form {
   max-width: 880px;
@@ -570,7 +580,14 @@ onMounted(loadAll)
   border-top: 1px solid var(--el-border-color-lighter);
 }
 .settings-tabs :deep(.el-tabs__content) {
-  padding: 20px 24px 24px;
+  padding: 16px 0 0;
+}
+.settings-tabs :deep(.el-tabs__item.is-active) {
+  color: var(--accent);
+  font-weight: 600;
+}
+.settings-tabs :deep(.el-tabs__active-bar) {
+  background: var(--accent);
 }
 .settings-form :deep(.el-form-item) {
   display: flex;

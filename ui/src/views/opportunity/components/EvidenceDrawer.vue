@@ -1,5 +1,5 @@
 <template>
-  <el-drawer v-model="visible" :title="$t('views.opportunity.evidence')" size="40%">
+  <el-drawer v-model="visible" :title="$t('views.opportunity.evidence')" size="446px">
     <el-empty v-if="evidence.length === 0" description="暂无允许展示的证据" />
     <el-card v-for="item in evidence" :key="item.paragraph_id" class="mb-12">
       <div class="flex-between">
@@ -23,6 +23,6 @@ const visible = computed({
 </script>
 <style scoped>
 .color-secondary {
-  color: var(--el-text-color-secondary);
+  color: var(--muted);
 }
 </style>

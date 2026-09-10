@@ -6,3 +6,4 @@ from .analysis import *  # noqa: F403
 from .case import *  # noqa: F403
 from .report import *  # noqa: F403
 from .embed import *  # noqa: F403
+from .record import *  # noqa: F403

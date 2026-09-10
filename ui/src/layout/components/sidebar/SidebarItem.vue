@@ -82,9 +82,9 @@ const menuIcon = computed(() => {
   .el-menu-item {
     padding: 13px 12px 13px 8px !important;
     font-weight: 400;
-    border-radius: 4px;
+    border-radius: 9px;
     &:hover {
-      background: rgba(var(--el-text-color-primary-rgb), 0.1);
+      background: var(--surface2);
       color: var(--el-menu-text-color);
     }
   }
@@ -101,8 +101,8 @@ const menuIcon = computed(() => {
     }
   }
   .el-menu-item.is-active {
-    color: var(--el-color-primary);
-    background: var(--el-color-primary-light-9);
+    color: var(--accent-ink);
+    background: var(--accent-soft);
     font-weight: 500;
   }
 }

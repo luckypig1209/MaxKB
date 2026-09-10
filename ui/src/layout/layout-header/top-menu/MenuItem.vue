@@ -37,6 +37,7 @@ const isActive = computed(() => {
   font-size: 14px;
   position: relative;
   padding: 6px 12px;
+  border-radius: 9px;
 
   .icon {
     font-size: 15px;
@@ -48,11 +49,11 @@ const isActive = computed(() => {
     background-color: rgba(var(--el-text-color-primary-rgb), 0.1);
   }
   &.active {
-    background-color: #ffffff;
-    box-shadow: 0px 2px 4px 0px rgba(var(--el-text-color-primary-rgb), 0.12);
+    background-color: var(--accent-soft);
+    box-shadow: none;
 
     .title {
-      color: var(--el-color-primary) !important;
+      color: var(--accent-ink) !important;
     }
   }
   .title-text {

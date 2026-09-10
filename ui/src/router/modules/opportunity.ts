@@ -44,6 +44,13 @@ const OpportunityRouter = {
       hidden: true,
     },
     {
+      path: '/opportunity/records',
+      name: 'opportunity-records',
+      meta: { title: '我的商机', activeMenu: '/opportunity' },
+      component: () => import('@/views/opportunity/records/index.vue'),
+      hidden: true,
+    },
+    {
       path: '/opportunity/:id',
       name: 'opportunity-detail',
       meta: { title: '商机分析结果', activeMenu: '/opportunity' },

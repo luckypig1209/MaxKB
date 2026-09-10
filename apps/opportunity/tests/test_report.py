@@ -34,6 +34,13 @@ def create_analysis(user_id='u1', status=AnalysisStatus.WAITING_CONFIRMATION):
 
 
 class OpportunityReportTests(TestCase):
+    def test_report_numbers_are_unique_for_analyses_created_together(self):
+        first = create_analysis(user_id='same-time-1')
+        second = create_analysis(user_id='same-time-2')
+        first_report = create_report_snapshot(first, 'same-time-1')
+        second_report = create_report_snapshot(second, 'same-time-2')
+        self.assertNotEqual(first_report.report_no, second_report.report_no)
+
     def test_report_versions_are_immutable_and_only_latest_is_current(self):
         analysis = create_analysis()
         first = create_report_snapshot(analysis, 'u1')

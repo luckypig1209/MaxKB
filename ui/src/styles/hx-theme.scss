@@ -1,0 +1,267 @@
+/* 鸿信产品壳：画布 + 白面板 + 品牌紫，覆盖 MaxKB 默认蓝与彩虹顶栏。 */
+
+:root {
+  --el-color-primary: var(--accent);
+  --el-color-primary-dark-2: var(--accent-ink);
+  --el-color-primary-light-3: var(--accent-ink);
+  --el-color-primary-light-5: color-mix(in srgb, var(--accent) 42%, white);
+  --el-color-primary-light-7: var(--accent-soft);
+  --el-color-primary-light-8: var(--accent-soft);
+  --el-color-primary-light-9: var(--accent-soft);
+  --el-color-success: var(--green);
+  --el-color-warning: var(--amber);
+  --el-color-danger: var(--red);
+  --el-text-color-primary: var(--ink);
+  --el-text-color-regular: var(--ink2);
+  --el-text-color-secondary: var(--muted);
+  --el-text-color-placeholder: var(--faint);
+  --el-border-color: var(--line);
+  --el-border-color-light: var(--line);
+  --el-border-color-lighter: var(--line);
+  --el-bg-color: var(--surface);
+  --el-bg-color-page: var(--canvas);
+  --el-fill-color-blank: var(--surface);
+  --el-fill-color-light: var(--surface2);
+  --el-border-radius-base: 8px;
+  --el-color-primary-rgb: 108, 92, 231;
+}
+
+body {
+  font-family: 'Noto Sans SC', 'PingFang SC', -apple-system, sans-serif !important;
+  color: var(--ink);
+  background: var(--canvas);
+}
+
+.app-layout,
+.app-main {
+  background: var(--canvas);
+}
+
+.app-header {
+  background: var(--surface) !important;
+  border-bottom: 1px solid var(--line);
+  box-shadow: none;
+}
+
+.custom-header {
+  background: var(--surface) !important;
+}
+
+.hx-product-name {
+  margin-left: 10px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.hx-pmain {
+  padding: 24px 24px 80px;
+  box-sizing: border-box;
+}
+
+.hx-overview {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 0 0 16px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.hx-overview h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.hx-overview__context {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.hx-overview__metrics {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.hx-metric {
+  min-width: 108px;
+  padding: 8px 12px;
+  background: var(--surface2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.hx-metric span,
+.hx-metric em {
+  display: block;
+  font-size: 11px;
+  font-style: normal;
+  color: var(--muted);
+}
+
+.hx-metric strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.hx-overview__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hx-panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 18px;
+  box-shadow: 0 1px 2px rgba(20, 25, 55, 0.04);
+}
+
+.hx-panel + .hx-panel {
+  margin-top: 16px;
+}
+
+.hx-panel__title {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.hx-workspace {
+  display: grid;
+  grid-template-columns: minmax(280px, 34%) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 1199px) {
+  .hx-workspace {
+    grid-template-columns: 1fr;
+  }
+}
+
+.hx-rcard {
+  width: 100%;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px;
+  cursor: pointer;
+  transition: 0.16s var(--ease);
+  box-shadow: 0 1px 2px rgba(20, 25, 55, 0.04);
+}
+
+.hx-rcard:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+  border-color: var(--line2);
+}
+
+.hx-rcard.is-on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.hx-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 11px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.hx-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 8px;
+  background: var(--surface2);
+  color: var(--ink2);
+}
+
+.hx-tag.is-ok {
+  background: var(--green-s);
+  color: var(--green);
+}
+
+.hx-tag.is-warn {
+  background: var(--amber-s);
+  color: var(--amber);
+}
+
+.hx-tag.is-bad {
+  background: var(--red-s);
+  color: var(--red);
+}
+
+.hx-tag.is-on {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.hx-empty {
+  padding: 80px 20px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.hx-block {
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.el-button--primary:not(.is-link):not(.is-text):not(.is-disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  border-radius: 11px;
+  font-weight: 600;
+  box-shadow: var(--accent-glow);
+  transition: 0.15s var(--ease);
+}
+
+.el-button--primary:not(.is-link):not(.is-text):not(.is-disabled):hover {
+  background: var(--accent-ink);
+  border-color: var(--accent-ink);
+  transform: translateY(-1px);
+}
+
+.el-dialog {
+  border-radius: 20px;
+  overflow: hidden;
+}
+
+.el-overlay .el-dialog .el-button--primary:not(.is-link):not(.is-text):not(.is-disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: var(--accent-glow);
+}
+
+.layout-container__left {
+  background: var(--surface);
+  border-color: var(--line) !important;
+}
+
+.sidebar .el-menu-item.is-active {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}

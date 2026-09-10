@@ -49,10 +49,10 @@ withDefaults(defineProps<{ type?: 'workspace' | 'system' }>(), {
     margin-left: 8px !important;
   }
   .active {
-    background-color: #ffffff;
-    box-shadow: 0px 2px 4px 0px rgba(var(--el-text-color-primary-rgb), 0.12);
+    background-color: var(--accent-soft);
+    box-shadow: none;
     &:hover {
-      background: #ffffff;
+      background: var(--accent-soft);
     }
   }
 }

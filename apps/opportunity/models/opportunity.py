@@ -7,9 +7,8 @@
     @desc: 商机智能分析数据模型
 """
 import uuid_utils.compat as uuid
-from django.db import models
-
 from common.mixins.app_model_mixin import AppModelMixin
+from django.db import models
 
 
 class SearchModeChoices(models.TextChoices):
@@ -81,6 +80,13 @@ class DecisionAction(models.TextChoices):
     REJECT = 'REJECT', 'REJECT'
     NO_MATCH = 'NO_MATCH', 'NO_MATCH'
     CANCEL = 'CANCEL', 'CANCEL'
+
+
+class OpportunityFollowUpStatus(models.TextChoices):
+    PENDING = 'PENDING', '待跟进'
+    FOLLOWING = 'FOLLOWING', '跟进中'
+    TRANSFERRED = 'TRANSFERRED', '已转交'
+    CLOSED = 'CLOSED', '已关闭'
 
 
 class RequirementProfileSource(models.TextChoices):
@@ -419,4 +425,41 @@ class OpportunityAuditLog(AppModelMixin):
         db_table = 'bia_opportunity_audit_log'
         indexes = [
             models.Index(fields=['workspace_id', 'analysis', 'create_time'], name='idx_bia_audit_ws_analysis'),
+        ]
+
+
+class OpportunityRecord(AppModelMixin):
+    """独立的商机结果台账，保存确认时的业务快照。"""
+
+    id = models.UUIDField(primary_key=True, max_length=128, default=uuid.uuid7, editable=False, verbose_name="主键id")
+    workspace_id = models.CharField(max_length=64, verbose_name="工作空间id", db_index=True)
+    analysis = models.OneToOneField(
+        OpportunityAnalysis, on_delete=models.CASCADE, db_constraint=False,
+        related_name='opportunity_record', verbose_name="来源分析",
+    )
+    owner_user_id = models.CharField(max_length=128, verbose_name="商机创建人", db_index=True)
+    decision_action = models.CharField(
+        max_length=32,
+        choices=((DecisionAction.ACCEPT, DecisionAction.ACCEPT), (DecisionAction.RESELECT, DecisionAction.RESELECT)),
+        verbose_name="确认动作",
+    )
+    product_code = models.CharField(max_length=64, default='', blank=True, verbose_name="产品编码")
+    product_name = models.CharField(max_length=128, default='', blank=True, verbose_name="产品名称")
+    department_code = models.CharField(max_length=64, default='', blank=True, verbose_name="主责部门编码")
+    department_name = models.CharField(max_length=128, default='', blank=True, verbose_name="主责部门名称")
+    status = models.CharField(
+        max_length=16, choices=OpportunityFollowUpStatus.choices,
+        default=OpportunityFollowUpStatus.PENDING, db_index=True, verbose_name="跟进状态",
+    )
+    accepted_at = models.DateTimeField(verbose_name="接受时间", db_index=True)
+    latest_note = models.CharField(max_length=1024, default='', blank=True, verbose_name="最近跟进说明")
+    decision_snapshot = models.JSONField(default=dict, verbose_name="确认时结果快照")
+
+    class Meta:
+        db_table = 'bia_opportunity_record'
+        indexes = [
+            models.Index(
+                fields=['workspace_id', 'owner_user_id', 'status', 'accepted_at'],
+                name='idx_bia_opp_rec_ws_owner_st',
+            ),
         ]

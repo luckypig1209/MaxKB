@@ -26,7 +26,10 @@ def create_report_snapshot(analysis, generated_by=None):
         current = QuerySet(OpportunityReport).select_for_update().filter(analysis=analysis)
         version = (current.aggregate(value=Max('version')).get('value') or 0) + 1
         current.filter(is_current=True).update(is_current=False)
-        report_no = f'BIA-{analysis.create_time:%Y%m%d}-{str(analysis.id)[:8]}-V{version}'
+        # UUIDv7 的前缀主要是时间戳；同一毫秒创建的分析可能拥有相同前 8 位。
+        # 使用完整 UUID hex，确保工作空间内的报告编号与分析任务一一对应。
+        analysis_key = str(analysis.id).replace('-', '')
+        report_no = f'BIA-{analysis.create_time:%Y%m%d}-{analysis_key}-V{version}'
         snapshot = {
             'schema_version': '1.0',
             'analysis_id': str(analysis.id),

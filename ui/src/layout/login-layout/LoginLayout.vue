@@ -1,56 +1,86 @@
 <template>
-  <div class="login-warp flex-center">
-    <div class="login-container w-full h-full">
-      <el-row class="container w-full h-full">
-        <el-col :xs="0" :sm="0" :md="10" :lg="10" :xl="10" class="left-container">
-          <div class="login-image" :style="{ backgroundImage: `url(${loginImage})` }"></div>
-        </el-col>
-        <el-col :xs="24" :sm="24" :md="14" :lg="14" :xl="14" class="right-container flex-center">
-          <el-dropdown trigger="click" type="primary" class="lang" v-if="lang">
-            <template #dropdown>
-              <el-dropdown-menu class="w-180">
-                <el-dropdown-item
-                  v-for="(lang, index) in langList"
-                  :key="index"
-                  :value="lang.value"
-                  @click="changeLang(lang.value)"
-                  class="flex-between"
-                >
-                  <span :class="lang.value === user.getLanguage() ? 'primary' : ''">{{
-                    lang.label
-                  }}</span>
+  <div class="login-page">
+    <div class="login-shell">
+      <header class="login-topbar">
+        <div class="login-topbar__logo">
+          <LogoFull height="40px" />
+        </div>
+        <el-dropdown v-if="lang" trigger="click">
+          <template #dropdown>
+            <el-dropdown-menu class="w-180">
+              <el-dropdown-item
+                v-for="(item, index) in langList"
+                :key="index"
+                @click="changeLang(item.value)"
+                class="flex-between"
+              >
+                <span :class="item.value === user.getLanguage() ? 'primary' : ''">{{ item.label }}</span>
+                <el-icon v-if="item.value === user.getLanguage()" class="primary"><Check /></el-icon>
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+          <el-button>
+            {{ currentLanguage }}<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+          </el-button>
+        </el-dropdown>
+      </header>
 
-                  <el-icon
-                    :class="lang.value === user.getLanguage() ? 'primary' : ''"
-                    v-if="lang.value === user.getLanguage()"
-                  >
-                    <Check />
-                  </el-icon>
-                </el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-            <el-button>
-              {{ currentLanguage }}<el-icon class="el-icon--right"><arrow-down /></el-icon>
-            </el-button>
-          </el-dropdown>
-          <slot></slot>
-        </el-col>
-      </el-row>
+      <main class="login-main">
+        <section class="login-value" aria-labelledby="login-value-title">
+          <span class="login-value__chip">{{ $t('views.login.brand.product') }}</span>
+          <h1 id="login-value-title" class="login-value__title">{{ $t('views.login.brand.headline') }}</h1>
+          <p class="login-value__desc">{{ $t('views.login.brand.description') }}</p>
+          <div class="login-flow">
+            <ol>
+              <li class="login-flow__item">
+                <span class="login-flow__index">01</span>
+                <div class="login-flow__body">
+                  <h3>{{ $t('views.login.brand.flowParseTitle') }}</h3>
+                  <p>{{ $t('views.login.brand.flowParseDesc') }}</p>
+                </div>
+              </li>
+              <li class="login-flow__item">
+                <span class="login-flow__index">02</span>
+                <div class="login-flow__body">
+                  <h3>{{ $t('views.login.brand.flowMatchTitle') }}</h3>
+                  <p>{{ $t('views.login.brand.flowMatchDesc') }}</p>
+                </div>
+              </li>
+              <li class="login-flow__item">
+                <span class="login-flow__index">03</span>
+                <div class="login-flow__body">
+                  <h3>{{ $t('views.login.brand.flowTraceTitle') }}</h3>
+                  <p>{{ $t('views.login.brand.flowTraceDesc') }}</p>
+                </div>
+              </li>
+            </ol>
+          </div>
+          <div v-if="customLoginImage" class="login-value__media">
+            <img :src="customLoginImage" alt="" />
+          </div>
+        </section>
+        <div class="login-panel">
+          <slot />
+        </div>
+      </main>
     </div>
   </div>
 </template>
 <script setup lang="ts">
 import { computed } from 'vue'
-import { getThemeImg } from '@/utils/theme'
+import { ArrowDown, Check } from '@element-plus/icons-vue'
 import useStore from '@/stores'
 import { useLocalStorage } from '@vueuse/core'
 import { langList, localeConfigKey, getBrowserLang } from '@/locales/index'
+import LogoFull from '@/components/logo/LogoFull.vue'
+
 defineProps({
   lang: {
     type: Boolean,
     default: true,
   },
 })
+
 const { user, theme } = useStore()
 
 const changeLang = (lang: string) => {
@@ -59,50 +89,16 @@ const changeLang = (lang: string) => {
 }
 
 const currentLanguage = computed(() => {
-  return langList.value?.filter((v: any) => v.value === user.getLanguage())?.[0]?.label
+  return langList.value?.filter((item: any) => item.value === user.getLanguage())?.[0]?.label
 })
 
-const fileURL = computed(() => {
-  if (theme.themeInfo?.loginImage) {
-    if (typeof theme.themeInfo?.loginImage === 'string') {
-      return theme.themeInfo?.loginImage
-    } else {
-      return URL.createObjectURL(theme.themeInfo?.loginImage)
-    }
-  } else {
-    return ''
-  }
-})
-
-const loginImage = computed(() => {
-  if (theme.themeInfo?.loginImage) {
-    return `${fileURL.value}`
-  } else {
-    const imgName = getThemeImg(theme.themeInfo?.theme)
-    const imgPath = `${window.MaxKB.prefix}/theme/${imgName}.jpg`
-    const imageUrl = new URL(imgPath, import.meta.url).href
-    return imageUrl
-  }
+const customLoginImage = computed(() => {
+  const image = theme.themeInfo?.loginImage
+  if (!image) return ''
+  if (typeof image === 'string') return image
+  return URL.createObjectURL(image)
 })
 </script>
-<style lang="scss" scoped>
-.login-warp {
-  height: 100vh;
-
-  .login-image {
-    background-repeat: no-repeat;
-    background-position: center;
-    background-size: cover;
-    width: 100%;
-    height: 100%;
-  }
-  .right-container {
-    position: relative;
-    .lang {
-      position: absolute;
-      right: 20px;
-      top: 20px;
-    }
-  }
-}
+<style lang="scss">
+@use './login-page.scss';
 </style>

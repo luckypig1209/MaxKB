@@ -1,85 +1,65 @@
 <template>
-  <login-layout v-if="!loading" v-loading="loading || sendLoading">
-    <LoginContainer
-      :subTitle="theme.themeInfo?.slogan ? theme.themeInfo?.slogan : $t('theme.defaultSlogan')"
-    >
-      <h2 class="mb-24">{{ $t('views.login.forgotPassword') }}</h2>
+  <login-layout v-loading="bootstrapping">
+    <LoginContainer :title="$t('views.login.forgotTitle')" :sub-title="$t('views.login.forgotHint')">
       <el-form
-        class="register-form"
+        class="login-form"
         ref="resetPasswordFormRef"
         :model="CheckEmailForm"
         :rules="rules"
+        label-position="top"
       >
-        <div class="mb-24">
-          <el-form-item prop="email">
+        <el-form-item :label="$t('views.login.loginForm.email.label')" prop="email">
+          <el-input
+            class="input-item"
+            type="email"
+            name="email"
+            autocomplete="email"
+            v-model="CheckEmailForm.email"
+            :placeholder="$t('views.login.loginForm.email.placeholder')"
+          />
+        </el-form-item>
+        <el-form-item :label="$t('views.login.verificationCode.label')" prop="code">
+          <div class="login-captcha">
             <el-input
-              size="large"
               class="input-item"
-              v-model="CheckEmailForm.email"
-              :placeholder="$t('views.login.loginForm.email.placeholder')"
-            >
-            </el-input>
-          </el-form-item>
-        </div>
-        <div class="mb-24">
-          <el-form-item prop="code">
-            <div class="flex-between w-full">
-              <el-input
-                size="large"
-                class="code-input"
-                v-model="CheckEmailForm.code"
-                :placeholder="$t('views.login.verificationCode.placeholder')"
-              >
-              </el-input>
-
-              <el-button
-                :disabled="isDisabled"
-                size="large"
-                class="send-email-button ml-12"
-                @click="sendEmail"
-                :loading="loading"
-              >
-                {{
-                  isDisabled
-                    ? `${$t('views.login.verificationCode.resend')}（${time}s）`
-                    : $t('views.login.verificationCode.getVerificationCode')
-                }}
-              </el-button>
-            </div>
-          </el-form-item>
-        </div>
+              name="code"
+              autocomplete="one-time-code"
+              v-model="CheckEmailForm.code"
+              :placeholder="$t('views.login.verificationCode.placeholder')"
+            />
+            <el-button :disabled="isDisabled" :loading="sendLoading" @click="sendEmail">
+              {{
+                isDisabled
+                  ? `${$t('views.login.verificationCode.resend')}（${time}s）`
+                  : $t('views.login.verificationCode.getVerificationCode')
+              }}
+            </el-button>
+          </div>
+        </el-form-item>
       </el-form>
-      <el-button size="large" type="primary" class="w-full" @click="checkCode"
-      >{{ $t('views.login.buttons.checkCode') }}
+      <el-button type="primary" class="login-submit" :loading="submitting" @click="checkCode">
+        {{ $t('views.login.buttons.checkCode') }}
       </el-button>
-      <div class="operate-container mt-12">
-        <el-button
-          class="register"
-          @click="router.push('/login')"
-          link
-          type="primary"
-          icon="ArrowLeft"
-        >
-          {{ $t('views.login.buttons.backLogin') }}
-        </el-button>
+      <div class="login-card-actions">
+        <router-link class="login-text-link" to="/login">{{ $t('views.login.buttons.backLogin') }}</router-link>
       </div>
     </LoginContainer>
   </login-layout>
 </template>
 <script setup lang="ts">
-import {onBeforeMount, ref} from 'vue'
+import { onBeforeMount, ref } from 'vue'
 import LoginContainer from '@/layout/login-layout/LoginContainer.vue'
 import LoginLayout from '@/layout/login-layout/LoginLayout.vue'
-import type {CheckCodeRequest} from '@/api/type/user'
-import {useRouter} from 'vue-router'
-import type {FormInstance, FormRules} from 'element-plus'
+import type { CheckCodeRequest } from '@/api/type/user'
+import { useRouter } from 'vue-router'
+import type { FormInstance, FormRules } from 'element-plus'
 import UserApi from '@/api/user/user'
-import {MsgSuccess} from '@/utils/message'
-import {t} from '@/locales'
+import { MsgSuccess } from '@/utils/message'
+import { t } from '@/locales'
 import useStore from '@/stores'
 
 const router = useRouter()
-const {theme, user} = useStore()
+const { user } = useStore()
 
 const CheckEmailForm = ref<CheckCodeRequest>({
   email: '',
@@ -107,21 +87,24 @@ const rules = ref<FormRules<CheckCodeRequest>>({
       trigger: 'blur',
     },
   ],
-  code: [{required: true, message: t('views.login.verificationCode.placeholder')}],
+  code: [{ required: true, message: t('views.login.verificationCode.placeholder') }],
 })
-const loading = ref<boolean>(false)
+const bootstrapping = ref<boolean>(false)
+const submitting = ref<boolean>(false)
 const isDisabled = ref<boolean>(false)
 const time = ref<number>(60)
 const sendLoading = ref<boolean>(false)
 const checkCode = () => {
+  if (submitting.value) return
+  submitting.value = true
   resetPasswordFormRef.value
     ?.validate()
     .then(() => UserApi.checkCode(CheckEmailForm.value, sendLoading))
-    .then(() => router.push({name: 'ResetPassword', params: CheckEmailForm.value}))
+    .then(() => router.push({ name: 'ResetPassword', params: CheckEmailForm.value }))
+    .finally(() => {
+      submitting.value = false
+    })
 }
-/**
- * 发送验证码
- */
 const sendEmail = () => {
   resetPasswordFormRef.value?.validateField('email', (v: boolean) => {
     if (v) {
@@ -145,10 +128,14 @@ const handleTimeChange = () => {
   }
 }
 onBeforeMount(() => {
-  loading.value = true
+  bootstrapping.value = true
   user.asyncGetProfile().then(() => {
-    loading.value = false
+    bootstrapping.value = false
   })
 })
 </script>
-<style lang="scss" scoped></style>
+<style lang="scss" scoped>
+.login-form {
+  margin-top: 24px;
+}
+</style>

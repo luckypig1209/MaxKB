@@ -7,6 +7,7 @@ export type AnalysisStatus =
   | 'WAITING_CONFIRMATION'
   | 'CONFIRMED'
   | 'CLOSED'
+export type OpportunityFollowUpStatus = 'PENDING' | 'FOLLOWING' | 'TRANSFERRED' | 'CLOSED'
 export type MatchStatus = 'FULL' | 'PARTIAL' | 'NO' | 'INSUFFICIENT'
 export type RecommendationLevel = 'RECOMMENDED' | 'TECHNICAL_CONFIRMATION' | 'NOT_RECOMMENDED'
 
@@ -261,4 +262,28 @@ export interface OpportunityAnalysis {
   error_message?: string | null
   create_time?: string
   update_time?: string
+}
+
+export interface OpportunityRecord {
+  id: string
+  workspace_id: string
+  analysis_id: string
+  owner_user_id: string
+  decision_action: 'ACCEPT' | 'RESELECT'
+  product_code: string
+  product_name: string
+  department_code: string
+  department_name: string
+  status: OpportunityFollowUpStatus
+  accepted_at?: string
+  latest_note: string
+  original_requirement: string
+  create_time?: string
+  update_time?: string
+  decision_snapshot?: Record<string, unknown>
+  requirement_profile?: RequirementProfile
+  candidate?: CandidateResult
+  cases?: CaseReference[]
+  evidence?: EvidenceItem[]
+  report?: { id: string; report_no: string; version: number; create_time?: string } | null
 }

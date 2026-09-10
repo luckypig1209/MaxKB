@@ -1,6 +1,6 @@
 export default {
   title: '外觀設置',
-  defaultSlogan: '強大易用的企業級智能體平台',
+  defaultSlogan: '從客戶需求匹配內部產品，給出可追溯依據',
   platformDisplayTheme: '平台顯示主題',
   customTheme: '自定義主題',
   platformLoginSettings: '平台登錄設置',

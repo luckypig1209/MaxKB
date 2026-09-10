@@ -1,17 +1,17 @@
 <template>
-  <div class="p-16-24 case-page">
-    <div class="flex-between mb-16">
-      <div>
-        <h2>{{ $t('views.opportunity.caseManagement') }}</h2>
-        <p class="color-secondary mt-4">案例与产品事实分开管理，发布前必须完成脱敏审核</p>
-      </div>
-      <div>
+  <div class="hx-pmain case-page hx-tool-page">
+    <HxOverview
+      title="案例管理"
+      context="案例与产品事实分开管理，发布前必须完成脱敏审核"
+      :metrics="overviewMetrics"
+    >
+      <template #actions>
         <el-button @click="$router.push('/opportunity')">返回分析</el-button>
         <el-button type="primary" @click="openCreate">新建案例</el-button>
-      </div>
-    </div>
+      </template>
+    </HxOverview>
 
-    <el-card>
+    <div class="hx-panel">
       <el-form class="case-filter" :inline="true" :model="filters">
         <el-form-item class="filter-item" label="案例">
           <el-input v-model="filters.name" clearable placeholder="名称关键字" />
@@ -25,7 +25,7 @@
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" @click="loadCases">查询</el-button>
+          <el-button @click="loadCases">查询</el-button>
           <el-button @click="resetFilters">重置</el-button>
         </el-form-item>
       </el-form>
@@ -70,7 +70,7 @@
           </template>
         </el-table-column>
       </el-table>
-    </el-card>
+    </div>
 
     <el-dialog v-model="editorVisible" :title="editingId ? '编辑案例' : '新建案例'" width="760px">
       <el-form ref="caseFormRef" :model="form" :rules="rules" label-width="110px">
@@ -190,7 +190,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import opportunityApi from '@/api/opportunity'
 import type {
@@ -200,6 +200,7 @@ import type {
   DepartmentProfile,
   ProductProfile,
 } from '@/api/type/opportunity'
+import HxOverview from '../components/HxOverview.vue'
 
 type CaseAction = 'SUBMIT_REVIEW' | 'APPROVE' | 'REJECT' | 'PUBLISH' | 'OFFLINE' | 'ARCHIVE'
 
@@ -209,6 +210,11 @@ const statusOptions: CaseStatus[] = [
 const loading = ref(false)
 const saving = ref(false)
 const cases = ref<CaseProfile[]>([])
+const overviewMetrics = computed(() => [
+  { label: '当前筛选结果', value: cases.value.length },
+  { label: '已发布', value: cases.value.filter((item) => item.status === 'PUBLISHED').length, hint: '当前筛选结果' },
+  { label: '待审核', value: cases.value.filter((item) => item.status === 'PENDING_REVIEW').length, hint: '当前筛选结果' },
+])
 const products = ref<ProductProfile[]>([])
 const departments = ref<DepartmentProfile[]>([])
 const filters = reactive({ name: '', industry: '', status: '' })
@@ -367,7 +373,7 @@ onMounted(() => {
 
 <style scoped>
 .case-page .color-secondary {
-  color: var(--el-text-color-secondary);
+  color: var(--muted);
 }
 .case-filter .filter-item {
   width: 250px;

@@ -1,134 +1,157 @@
 <template>
-  <login-layout v-if="!loading" v-loading="loading">
-    <LoginContainer :subTitle="newDefaultSlogan">
-      <h2 class="mb-24" v-if="!showQrCodeTab">{{ loginMode || $t('views.login.title') }}</h2>
-      <div v-if="!showQrCodeTab">
-        <el-form
-          class="login-form"
-          :rules="rules"
-          :model="loginForm"
-          ref="loginFormRef"
-          @keyup.enter="loginHandle"
-        >
-          <div class="mb-24">
-            <el-form-item prop="username">
-              <el-input
-                size="large"
-                class="input-item"
-                v-model="loginForm.username"
-                @blur="handleUsernameBlur(loginForm.username)"
-                :placeholder="$t('views.login.loginForm.username.placeholder')"
-              >
-              </el-input>
-            </el-form-item>
-          </div>
-          <div class="mb-24">
-            <el-form-item prop="password">
-              <el-input
-                type="password"
-                size="large"
-                class="input-item"
-                v-model="loginForm.password"
-                :placeholder="$t('views.login.loginForm.password.placeholder')"
-                show-password
-              >
-              </el-input>
-            </el-form-item>
-          </div>
-          <div class="mb-24" v-if="loginMode !== 'LDAP' && identifyCode">
-            <el-form-item prop="captcha">
-              <div class="flex-between w-full">
-                <el-input
-                  size="large"
-                  class="input-item"
-                  v-model="loginForm.captcha"
-                  :placeholder="$t('views.login.loginForm.captcha.placeholder')"
-                >
-                </el-input>
-
-                <img
-                  :src="identifyCode"
-                  alt=""
-                  height="38"
-                  class="ml-8 cursor border border-r-6"
-                  @click="makeCode(loginForm.username)"
-                />
-              </div>
-            </el-form-item>
-          </div>
-        </el-form>
-
-        <el-button
-          size="large"
-          type="primary"
-          class="w-full"
-          @click="loginHandle"
-          :loading="loading"
-        >
-          {{ $t('views.login.buttons.login') }}
-        </el-button>
-        <div class="operate-container flex-between mt-12">
-          <el-button
-            :loading="loading"
-            class="forgot-password"
-            @click="router.push('/forgot_password')"
-            link
-            type="primary"
+  <login-layout v-loading="bootstrapping">
+    <LoginContainer
+      :title="cardTitle"
+      :sub-title="cardSubtitle"
+      :show-security-note="!showQrCodeTab"
+    >
+      <el-form
+        v-if="!showQrCodeTab"
+        class="login-form"
+        :rules="rules"
+        :model="loginForm"
+        ref="loginFormRef"
+        label-position="top"
+        @keyup.enter="loginHandle"
+      >
+        <el-form-item :label="$t('views.login.loginForm.username.label')" prop="username">
+          <el-input
+            class="input-item"
+            name="username"
+            autocomplete="username"
+            spellcheck="false"
+            v-model="loginForm.username"
+            @blur="handleUsernameBlur(loginForm.username)"
+            :placeholder="$t('views.login.loginForm.username.placeholder')"
+          />
+        </el-form-item>
+        <el-form-item :label="$t('views.login.loginForm.password.label')" prop="password">
+          <el-input
+            class="input-item"
+            name="password"
+            autocomplete="current-password"
+            :type="passwordVisible ? 'text' : 'password'"
+            v-model="loginForm.password"
+            :placeholder="$t('views.login.loginForm.password.placeholder')"
           >
-            {{ $t('views.login.forgotPassword') }}?
-          </el-button>
-        </div>
+            <template #suffix>
+              <button
+                type="button"
+                class="login-eye"
+                :aria-label="passwordVisible ? $t('views.login.hidePassword') : $t('views.login.showPassword')"
+                @click="passwordVisible = !passwordVisible"
+              >
+                <el-icon><View v-if="passwordVisible" /><Hide v-else /></el-icon>
+              </button>
+            </template>
+          </el-input>
+        </el-form-item>
+        <el-form-item
+          v-if="loginMode !== 'LDAP' && identifyCode"
+          :label="$t('views.login.loginForm.captcha.label')"
+          prop="captcha"
+        >
+          <div class="login-captcha">
+            <el-input
+              class="input-item"
+              name="captcha"
+              autocomplete="off"
+              v-model="loginForm.captcha"
+              :placeholder="$t('views.login.loginForm.captcha.placeholder')"
+            />
+            <button
+              type="button"
+              class="login-captcha__refresh"
+              :aria-label="$t('views.login.refreshCaptcha')"
+              :disabled="captchaRefreshing"
+              @click="makeCode(loginForm.username)"
+            >
+              <img :src="identifyCode" :alt="$t('views.login.captchaImageAlt')" />
+            </button>
+          </div>
+          <p class="login-captcha__hint">{{ $t('views.login.captchaHint') }}</p>
+        </el-form-item>
+      </el-form>
+
+      <el-button
+        v-if="!showQrCodeTab"
+        type="primary"
+        class="login-submit"
+        :loading="submitting"
+        @click="loginHandle"
+      >
+        {{ submitting ? $t('views.login.buttons.loggingIn') : $t('views.login.buttons.login') }}
+      </el-button>
+      <div v-if="!showQrCodeTab" class="login-card-actions">
+        <router-link class="login-text-link" to="/forgot_password">
+          {{ $t('views.login.forgotPassword') }}？
+        </router-link>
       </div>
+
       <div v-if="showQrCodeTab">
         <QrCodeTab :tabs="orgOptions" :default-tab="defaultQrTab" />
+        <div class="login-card-actions">
+          <button type="button" class="login-text-link login-eye" @click="changeMode('')">
+            {{ $t('views.login.backToAccount') }}
+          </button>
+        </div>
       </div>
-      <div class="login-gradient-divider lighter mt-24" v-if="modeList.length > 1">
-        <span>{{ $t('views.login.moreMethod') }}</span>
-      </div>
-      <div class="text-center mt-16">
-        <template v-for="item in modeList">
-          <el-button
-            v-if="item !== '' && loginMode !== item && item !== 'QR_CODE'"
-            circle
-            :key="item"
-            class="login-button-circle color-secondary"
-            @click="changeMode(item)"
-          >
-            <span
-              :style="{
-                'font-size': item === 'OAUTH2' ? '8px' : '10px',
-                color: theme.themeInfo?.theme,
-              }"
-              >{{ item }}</span
+
+      <div class="login-methods" v-if="modeList.length > 1">
+        <p class="login-methods__label">{{ $t('views.login.moreMethod') }}</p>
+        <div class="login-methods__list">
+          <template v-for="item in modeList" :key="item || 'local'">
+            <el-tooltip
+              v-if="item !== '' && loginMode !== item && item !== 'QR_CODE'"
+              :content="methodLabel(item)"
             >
-          </el-button>
-          <el-button
-            v-if="item === 'QR_CODE' && loginMode !== item"
-            circle
-            :key="item"
-            class="login-button-circle color-secondary"
-            @click="changeMode('QR_CODE')"
-          >
-            <img src="@/assets/icon_qr_outlined.svg" width="25px" />
-          </el-button>
-          <el-button
-            v-if="item === '' && loginMode !== ''"
-            circle
-            :key="item"
-            class="login-button-circle color-secondary"
-            style="font-size: 24px"
-            icon="UserFilled"
-            @click="changeMode('')"
-          />
-        </template>
+              <button
+                type="button"
+                class="login-method"
+                :aria-label="methodLabel(item)"
+                @click="changeMode(item)"
+              >
+                {{ methodShort(item) }}
+              </button>
+            </el-tooltip>
+            <el-tooltip
+              v-if="item === 'QR_CODE' && loginMode !== item"
+              :content="$t('views.login.scanLogin')"
+            >
+              <button
+                type="button"
+                class="login-method"
+                :aria-label="$t('views.login.scanLogin')"
+                @click="changeMode('QR_CODE')"
+              >
+                <img src="@/assets/icon_qr_outlined.svg" width="18" height="18" alt="" />
+              </button>
+            </el-tooltip>
+            <el-tooltip
+              v-if="item === '' && loginMode !== ''"
+              :content="$t('views.login.backToAccount')"
+            >
+              <button
+                type="button"
+                class="login-method"
+                :class="{ 'is-on': loginMode === '' }"
+                :aria-label="$t('views.login.backToAccount')"
+                @click="changeMode('')"
+              >
+                <el-icon><UserFilled /></el-icon>
+              </button>
+            </el-tooltip>
+          </template>
+        </div>
       </div>
     </LoginContainer>
   </login-layout>
 </template>
 <script setup lang="ts">
-import { computed, onBeforeMount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeMount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { FormInstance, FormRules } from 'element-plus'
+import { Hide, UserFilled, View } from '@element-plus/icons-vue'
 import type { LoginRequest } from '@/api/type/login'
 import LoginContainer from '@/layout/login-layout/LoginContainer.vue'
 import LoginLayout from '@/layout/login-layout/LoginLayout.vue'
@@ -144,9 +167,13 @@ import { loadScript } from '@/utils/common'
 import JSEncrypt from 'jsencrypt'
 
 const router = useRouter()
-const { login, user, theme } = useStore()
+const { login, user } = useStore()
 const { locale } = useI18n({ useScope: 'global' })
+const bootstrapping = ref<boolean>(false)
+const submitting = ref<boolean>(false)
 const loading = ref<boolean>(false)
+const passwordVisible = ref(false)
+const captchaRefreshing = ref(false)
 const route = useRoute()
 const identifyCode = ref<string>('')
 const loginFormRef = ref<FormInstance>()
@@ -183,48 +210,53 @@ const rules = ref<FormRules<LoginRequest>>({
 })
 
 const loginHandle = () => {
-  if (!loginFormRef.value) {
+  if (!loginFormRef.value || submitting.value) {
     return
   }
   loginFormRef.value.validate((valid) => {
-    if (valid) {
-      loading.value = true
-      if (loginMode.value === 'LDAP') {
-        login
-          .asyncLdapLogin(loginForm.value)
-          .then(() => {
-            locale.value = localStorage.getItem('MaxKB-locale') || getBrowserLang() || 'en-US'
-            router.push({ name: 'home' })
-          })
-          .catch(() => {
-            loading.value = false
-          })
-      } else {
-        // JSEncrypt 在有些打包环境可能作为 default export 或直接导出，兼容两种情况
-        const JSEncryptCtor = (JSEncrypt as any)?.default ? (JSEncrypt as any).default : JSEncrypt
-        const js = new (JSEncryptCtor as any)()
-        js.setPublicKey(user.rsaKey)
-        const jsonData = JSON.stringify(loginForm.value)
-        const encryptedBase64 = js.encrypt(jsonData)
+    if (!valid) {
+      nextTick(() => {
+        const first = document.querySelector('.login-form .el-form-item.is-error input') as HTMLInputElement | null
+        first?.focus()
+      })
+      return
+    }
+    submitting.value = true
+    if (loginMode.value === 'LDAP') {
+      login
+        .asyncLdapLogin(loginForm.value)
+        .then(() => {
+          locale.value = localStorage.getItem('MaxKB-locale') || getBrowserLang() || 'en-US'
+          router.push({ name: 'home' })
+        })
+        .catch(() => {
+          submitting.value = false
+        })
+    } else {
+      const JSEncryptCtor = (JSEncrypt as any)?.default ? (JSEncrypt as any).default : JSEncrypt
+      const js = new (JSEncryptCtor as any)()
+      js.setPublicKey(user.rsaKey)
+      const jsonData = JSON.stringify(loginForm.value)
+      const encryptedBase64 = js.encrypt(jsonData)
 
-        login
-          .asyncLogin({ encryptedData: encryptedBase64, username: loginForm.value.username })
-          .then(() => {
-            locale.value = localStorage.getItem('MaxKB-locale') || getBrowserLang() || 'en-US'
-            localStorage.setItem('workspace_id', 'default')
-            router.push({ name: 'home' })
-          })
-          .catch(() => {
-            const username = loginForm.value.username
-            loading.value = false
-            makeCode(username)
-          })
-      }
+      login
+        .asyncLogin({ encryptedData: encryptedBase64, username: loginForm.value.username })
+        .then(() => {
+          locale.value = localStorage.getItem('MaxKB-locale') || getBrowserLang() || 'en-US'
+          localStorage.setItem('workspace_id', 'default')
+          router.push({ name: 'home' })
+        })
+        .catch(() => {
+          const username = loginForm.value.username
+          submitting.value = false
+          makeCode(username)
+        })
     }
   })
 }
 
 function makeCode(username?: string) {
+  captchaRefreshing.value = true
   loginApi
     .getCaptcha(username)
     .then((res: any) => {
@@ -235,6 +267,9 @@ function makeCode(username?: string) {
     .catch((error) => {
       console.error('Failed to get captcha:', error)
     })
+    .finally(() => {
+      captchaRefreshing.value = false
+    })
 }
 
 function handleUsernameBlur(username: string) {
@@ -242,7 +277,7 @@ function handleUsernameBlur(username: string) {
 }
 
 onBeforeMount(() => {
-  loading.value = true
+  bootstrapping.value = true
   user.asyncGetProfile().then((res) => {
     // 企业版和专业版：第三方登录
     if (user.isPE() || user.isEE()) {
@@ -320,7 +355,7 @@ onBeforeMount(() => {
         default_value: 'LOCAL',
       }
     }
-    loading.value = false
+    bootstrapping.value = false
   })
 })
 
@@ -344,14 +379,32 @@ function uuidv4() {
   })
 }
 
-const newDefaultSlogan = computed(() => {
-  const default_login = '强大易用的企业级智能体平台'
-  if (!theme.themeInfo?.slogan || default_login == theme.themeInfo?.slogan) {
-    return t('theme.defaultSlogan')
-  } else {
-    return theme.themeInfo?.slogan
-  }
+const cardTitle = computed(() =>
+  showQrCodeTab.value ? t('views.login.scanLogin') : t('views.login.welcome'),
+)
+const cardSubtitle = computed(() => {
+  if (showQrCodeTab.value) return t('views.login.scanHint')
+  if (loginMode.value === 'LDAP') return t('views.login.ldapHint')
+  return t('views.login.welcomeHint')
 })
+
+function methodLabel(item: string) {
+  const map: Record<string, string> = {
+    LDAP: t('views.login.methods.ldap'),
+    CAS: t('views.login.methods.cas'),
+    OIDC: t('views.login.methods.oidc'),
+    OAuth2: t('views.login.methods.oauth2'),
+    SAML2: t('views.login.methods.saml2'),
+    LOCAL: t('views.login.backToAccount'),
+  }
+  return map[item] || item
+}
+
+function methodShort(item: string) {
+  if (item === 'OAuth2') return 'O2'
+  if (item === 'SAML2') return 'S2'
+  return item.slice(0, 2)
+}
 
 function redirectAuth(authType: string, needMessage: boolean = true) {
   if (authType === 'LDAP' || authType === '' || authType === 'LOCAL') {
@@ -505,37 +558,7 @@ onMounted(() => {
 })
 </script>
 <style lang="scss" scoped>
-.login-gradient-divider {
-  position: relative;
-  text-align: center;
-  color: var(--el-color-info);
-
-  ::before {
-    content: '';
-    width: 25%;
-    height: 1px;
-    background: linear-gradient(90deg, rgba(222, 224, 227, 0) 0%, #dee0e3 100%);
-    position: absolute;
-    left: 16px;
-    top: 50%;
-  }
-
-  ::after {
-    content: '';
-    width: 25%;
-    height: 1px;
-    background: linear-gradient(90deg, #dee0e3 0%, rgba(222, 224, 227, 0) 100%);
-    position: absolute;
-    right: 16px;
-    top: 50%;
-  }
-}
-
-.login-button-circle {
-  padding: 20px !important;
-  margin: 0 4px;
-  width: 32px;
-  height: 32px;
-  text-align: center;
+.login-form {
+  margin-top: 24px;
 }
 </style>

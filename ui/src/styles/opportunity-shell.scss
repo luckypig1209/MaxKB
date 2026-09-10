@@ -1,0 +1,110 @@
+/* 商机分析后台工具页：把 Element Plus 语义色接到鸿信 tokens。
+   不改全局 MaxKB 壳，只作用在 .hx-tool-page。 */
+.hx-tool-page {
+  color: var(--ink);
+  --el-color-primary: var(--accent);
+  --el-color-primary-dark-2: var(--accent-ink);
+  --el-color-primary-light-3: var(--accent-ink);
+  --el-color-primary-light-5: color-mix(in srgb, var(--accent) 42%, white);
+  --el-color-primary-light-7: var(--accent-soft);
+  --el-color-primary-light-8: var(--accent-soft);
+  --el-color-primary-light-9: var(--accent-soft);
+  --el-color-success: var(--green);
+  --el-color-warning: var(--amber);
+  --el-color-warning-dark-2: var(--amber);
+  --el-color-danger: var(--red);
+  --el-text-color-primary: var(--ink);
+  --el-text-color-regular: var(--ink2);
+  --el-text-color-secondary: var(--muted);
+  --el-text-color-placeholder: var(--faint);
+  --el-border-color: var(--line);
+  --el-border-color-light: var(--line);
+  --el-border-color-lighter: var(--line);
+  --el-bg-color: var(--surface);
+  --el-fill-color-light: var(--surface2);
+}
+
+.hx-tool-page h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.hx-tool-page h3,
+.hx-tool-page h4 {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.hx-tool-page h3 {
+  font-size: 16px;
+}
+
+.hx-tool-page h4 {
+  font-size: 16px;
+}
+
+.hx-tool-page :deep(.el-card) {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(20, 25, 55, 0.04);
+}
+
+.hx-tool-page :deep(.el-button--primary:not(.is-link):not(.is-text):not(.is-disabled)) {
+  background: var(--accent);
+  border-color: var(--accent);
+  border-radius: 11px;
+  font-weight: 600;
+  box-shadow: 0 8px 20px -9px rgba(108, 92, 231, 0.5);
+  transition: 0.15s var(--ease);
+}
+
+.hx-tool-page :deep(.el-button--primary:not(.is-link):not(.is-text):not(.is-disabled):hover) {
+  background: var(--accent-ink);
+  border-color: var(--accent-ink);
+  transform: translateY(-1px);
+}
+
+.hx-tool-page :deep(.el-tag--primary) {
+  --el-tag-bg-color: var(--accent-soft);
+  --el-tag-border-color: var(--accent-soft);
+  --el-tag-text-color: var(--accent-ink);
+}
+
+.hx-tool-page :deep(.el-tag--primary.el-tag--dark) {
+  --el-tag-bg-color: var(--accent);
+  --el-tag-border-color: var(--accent);
+  --el-tag-text-color: #fff;
+}
+
+.hx-tool-page :deep(.el-tag--success) {
+  --el-tag-bg-color: var(--green-s);
+  --el-tag-border-color: var(--green-s);
+  --el-tag-text-color: var(--green);
+}
+
+.hx-tool-page :deep(.el-tag--warning) {
+  --el-tag-bg-color: var(--amber-s);
+  --el-tag-border-color: var(--amber-s);
+  --el-tag-text-color: var(--amber);
+}
+
+.hx-tool-page :deep(.el-tag--danger) {
+  --el-tag-bg-color: var(--red-s);
+  --el-tag-border-color: var(--red-s);
+  --el-tag-text-color: var(--red);
+}
+
+@keyframes hx-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

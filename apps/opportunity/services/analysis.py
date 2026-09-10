@@ -9,11 +9,10 @@
 import logging
 import time
 
+from common.exception.app_exception import AppApiException
 from django.db import transaction
 from django.db.models import QuerySet
 from django.utils import timezone
-
-from common.exception.app_exception import AppApiException
 from opportunity.models import (
     AnalysisStatus,
     DecisionAction,
@@ -26,9 +25,10 @@ from opportunity.services.case_enhancement import run_case_enhancement
 from opportunity.services.department import resolve_department
 from opportunity.services.knowledge_retrieval import retrieve_product_paragraphs
 from opportunity.services.matching import build_candidate_result, match_product, rank_candidates
+from opportunity.services.opportunity_record import sync_opportunity_record
 from opportunity.services.prompts import MATCH_PROMPT_VERSION, REQUIREMENT_PROMPT_VERSION
-from opportunity.services.requirement_extraction import extract_requirement_profile, merge_clarification
 from opportunity.services.report import create_report_snapshot, record_audit, record_feedback
+from opportunity.services.requirement_extraction import extract_requirement_profile, merge_clarification
 from opportunity.services.requirement_history import save_requirement_profile_version
 from opportunity.services.scoring import RULE_VERSION
 from opportunity.services.state_machine import assert_transit
@@ -378,7 +378,8 @@ def _apply_decision(analysis: OpportunityAnalysis, action: str, product_code=Non
     }
     analysis.save()
     record_feedback(analysis, normalized, user_id, product_code=product_code, reason=reason)
-    create_report_snapshot(analysis, user_id)
+    report = create_report_snapshot(analysis, user_id)
+    sync_opportunity_record(analysis, normalized, report=report)
     return analysis
 
 

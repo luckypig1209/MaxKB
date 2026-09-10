@@ -9,6 +9,8 @@ import type {
   OpportunitySetting,
   OpportunityEmbedClient,
   ProductProfile,
+  OpportunityRecord,
+  OpportunityFollowUpStatus,
 } from '@/api/type/opportunity'
 
 const prefix: any = { _value: '/workspace/' }
@@ -99,6 +101,16 @@ const getReport = (id: string, loading?: Ref<boolean>) =>
 const exportReport = (id: string, reportNo?: string, loading?: Ref<boolean>) =>
   exportFile(`${reportNo || '商机分析报告'}.html`, `${prefix.value}/analyses/${id}/report/export`, {}, loading)
 
+const listOpportunityRecords = (params?: Record<string, unknown>, loading?: Ref<boolean>) =>
+  get(`${prefix.value}/records`, params, loading)
+const getOpportunityRecord = (id: string, loading?: Ref<boolean>): Promise<Result<OpportunityRecord>> =>
+  get(`${prefix.value}/records/${id}`, {}, loading)
+const updateOpportunityRecordStatus = (
+  id: string,
+  data: { status: OpportunityFollowUpStatus; note?: string },
+  loading?: Ref<boolean>,
+) => put(`${prefix.value}/records/${id}/status`, data, undefined, loading)
+
 const listEmbedClients = (loading?: Ref<boolean>): Promise<Result<OpportunityEmbedClient[]>> =>
   get(`${prefix.value}/embed/clients`, {}, loading)
 const createEmbedClient = (data: Partial<OpportunityEmbedClient>, loading?: Ref<boolean>) =>
@@ -138,6 +150,9 @@ export default {
   submitDecision,
   getReport,
   exportReport,
+  listOpportunityRecords,
+  getOpportunityRecord,
+  updateOpportunityRecordStatus,
   listEmbedClients,
   createEmbedClient,
   updateEmbedClient,

@@ -1,18 +1,16 @@
 <template>
-  <el-card v-if="logs.length">
-    <template #header>
-      <div class="flex-between">
-        <span>商机操作记录</span>
-        <el-tag v-if="report" type="info">{{ report.report_no }} · V{{ report.version }}</el-tag>
-      </div>
-    </template>
+  <section v-if="logs.length" class="hx-block">
+    <div class="flex-between">
+      <h3 class="hx-panel__title">商机操作记录</h3>
+      <span v-if="report" class="hx-tag">{{ report.report_no }} · V{{ report.version }}</span>
+    </div>
     <el-timeline>
       <el-timeline-item v-for="item in logs" :key="item.id" :timestamp="formatTime(item.create_time)">
         <strong>{{ actionText(item.action) }}</strong>
         <span v-if="reason(item.detail)" class="color-secondary ml-8">{{ reason(item.detail) }}</span>
       </el-timeline-item>
     </el-timeline>
-  </el-card>
+  </section>
 </template>
 
 <script setup lang="ts">
@@ -41,7 +39,10 @@ const reason = (detail: Record<string, unknown>) => typeof detail?.reason === 's
 </script>
 
 <style scoped>
+.hx-panel__title {
+  margin: 0;
+}
 .color-secondary {
-  color: var(--el-text-color-secondary);
+  color: var(--muted);
 }
 </style>
