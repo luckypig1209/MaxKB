@@ -1,21 +1,23 @@
 <template>
-  <div>
+  <div class="match-matrix">
     <h4>逐项比对</h4>
-    <el-table :data="rows" size="small" class="mt-8" @cell-click="onCell">
-      <el-table-column prop="description" :label="$t('views.opportunity.requirements')" min-width="180" />
-      <el-table-column
-        v-for="candidate in candidates"
-        :key="candidate.product_code"
-        :label="candidate.product_name"
-        min-width="160"
-      >
-        <template #default="{ row }">
-          <el-tag :type="tagType(row[candidate.product_code]?.status)">
-            {{ statusText(row[candidate.product_code]?.status) }}
-          </el-tag>
-        </template>
-      </el-table-column>
-    </el-table>
+    <div class="match-matrix__scroll">
+      <el-table :data="rows" size="small" class="mt-8" @cell-click="onCell">
+        <el-table-column prop="description" :label="$t('views.opportunity.requirements')" min-width="180" />
+        <el-table-column
+          v-for="candidate in candidates"
+          :key="candidate.product_code"
+          :label="candidate.product_name"
+          min-width="160"
+        >
+          <template #default="{ row }">
+            <el-tag :type="tagType(row[candidate.product_code]?.status)">
+              {{ statusText(row[candidate.product_code]?.status) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
   </div>
 </template>
 <script setup lang="ts">
@@ -57,3 +59,15 @@ const onCell = (row: Record<string, any>, column: { label?: string }) => {
   emit('open-evidence', (match?.evidence || []) as EvidenceItem[])
 }
 </script>
+<style scoped>
+.match-matrix {
+  min-width: 0;
+  max-width: 100%;
+}
+.match-matrix__scroll {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+}
+</style>

@@ -3,6 +3,8 @@ export default {
   wiki: '用户手册',
   forum: '论坛求助',
   logout: '退出登录',
+  openMenu: '打开菜单',
+  menu: '菜单',
   apiKey: 'API Key 管理',
   apiServiceAddress: 'API 服务地址',
   language: '语言',

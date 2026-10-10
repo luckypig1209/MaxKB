@@ -1,0 +1,210 @@
+{
+  "success": {
+    "candidates": [
+      {
+        "product_code": "P1",
+        "product_name": "产品一",
+        "product_version": "1.0",
+        "rank": 1,
+        "score": 100.0,
+        "recommendation_level": "RECOMMENDED",
+        "hard_constraint_failed": false,
+        "score_detail": {
+          "requirement_score": 100.0,
+          "evidence_completeness": 100.0,
+          "case_score": 0
+        },
+        "match_items": [
+          {
+            "requirement_id": "R-001",
+            "status": "FULL",
+            "reason": "产品资料覆盖该需求",
+            "evidence": [
+              {
+                "paragraph_id": "pg-p1",
+                "title": "能力说明",
+                "content_excerpt": "支持统一监控能力",
+                "similarity": 0.9
+              }
+            ]
+          }
+        ],
+        "risks": [],
+        "missing_information": [],
+        "department": {
+          "status": "UNRESOLVED",
+          "owner_department_code": null,
+          "owner_department_name": null,
+          "owner_user_id": null,
+          "support_departments": []
+        },
+        "case_references": [],
+        "rule_version": "scoring-v1",
+        "prompt_version": "match-v1",
+        "max_candidates": 5
+      },
+      {
+        "product_code": "P2",
+        "product_name": "产品二",
+        "product_version": "1.0",
+        "rank": 2,
+        "score": 100.0,
+        "recommendation_level": "RECOMMENDED",
+        "hard_constraint_failed": false,
+        "score_detail": {
+          "requirement_score": 100.0,
+          "evidence_completeness": 100.0,
+          "case_score": 0
+        },
+        "match_items": [
+          {
+            "requirement_id": "R-001",
+            "status": "FULL",
+            "reason": "产品资料覆盖该需求",
+            "evidence": [
+              {
+                "paragraph_id": "pg-p2",
+                "title": "能力说明",
+                "content_excerpt": "支持统一监控能力",
+                "similarity": 0.9
+              }
+            ]
+          }
+        ],
+        "risks": [],
+        "missing_information": [],
+        "department": {
+          "status": "UNRESOLVED",
+          "owner_department_code": null,
+          "owner_department_name": null,
+          "owner_user_id": null,
+          "support_departments": []
+        },
+        "case_references": [],
+        "rule_version": "scoring-v1",
+        "prompt_version": "match-v1",
+        "max_candidates": 5
+      }
+    ],
+    "excluded": [],
+    "summary": "已完成产品事实匹配",
+    "case_references": [],
+    "case_enhancement": {
+      "status": "NOT_CONFIGURED",
+      "count": 0,
+      "warning": "未配置案例知识库"
+    }
+  },
+  "clarification": {
+    "candidates": [],
+    "excluded": [],
+    "summary": "需要补充关键参数后再进行产品匹配"
+  },
+  "no_candidates": {
+    "candidates": [],
+    "excluded": [],
+    "summary": "没有合适的候选产品",
+    "case_references": [],
+    "case_enhancement": {
+      "status": "NOT_CONFIGURED",
+      "count": 0,
+      "warning": "未配置案例知识库"
+    }
+  },
+  "case_degraded": {
+    "candidates": [
+      {
+        "product_code": "P1",
+        "product_name": "产品一",
+        "product_version": "1.0",
+        "rank": 1,
+        "score": 100.0,
+        "recommendation_level": "RECOMMENDED",
+        "hard_constraint_failed": false,
+        "score_detail": {
+          "requirement_score": 100.0,
+          "evidence_completeness": 100.0,
+          "case_score": 0
+        },
+        "match_items": [
+          {
+            "requirement_id": "R-001",
+            "status": "FULL",
+            "reason": "产品资料覆盖该需求",
+            "evidence": [
+              {
+                "paragraph_id": "pg-p1",
+                "title": "能力说明",
+                "content_excerpt": "支持统一监控能力",
+                "similarity": 0.9
+              }
+            ]
+          }
+        ],
+        "risks": [],
+        "missing_information": [],
+        "department": {
+          "status": "UNRESOLVED",
+          "owner_department_code": null,
+          "owner_department_name": null,
+          "owner_user_id": null,
+          "support_departments": []
+        },
+        "case_references": [],
+        "rule_version": "scoring-v1",
+        "prompt_version": "match-v1",
+        "max_candidates": 5
+      },
+      {
+        "product_code": "P2",
+        "product_name": "产品二",
+        "product_version": "1.0",
+        "rank": 2,
+        "score": 100.0,
+        "recommendation_level": "RECOMMENDED",
+        "hard_constraint_failed": false,
+        "score_detail": {
+          "requirement_score": 100.0,
+          "evidence_completeness": 100.0,
+          "case_score": 0
+        },
+        "match_items": [
+          {
+            "requirement_id": "R-001",
+            "status": "FULL",
+            "reason": "产品资料覆盖该需求",
+            "evidence": [
+              {
+                "paragraph_id": "pg-p2",
+                "title": "能力说明",
+                "content_excerpt": "支持统一监控能力",
+                "similarity": 0.9
+              }
+            ]
+          }
+        ],
+        "risks": [],
+        "missing_information": [],
+        "department": {
+          "status": "UNRESOLVED",
+          "owner_department_code": null,
+          "owner_department_name": null,
+          "owner_user_id": null,
+          "support_departments": []
+        },
+        "case_references": [],
+        "rule_version": "scoring-v1",
+        "prompt_version": "match-v1",
+        "max_candidates": 5
+      }
+    ],
+    "excluded": [],
+    "summary": "已完成产品事实匹配；案例参考暂不可用",
+    "case_references": [],
+    "case_enhancement": {
+      "status": "DEGRADED",
+      "count": 0,
+      "warning": "案例参考暂不可用，当前结果仅依据产品资料生成"
+    }
+  }
+}

@@ -12,6 +12,7 @@ from models_provider.base_model_provider import ModelTypeConst
 from opportunity.models import SearchModeChoices
 from opportunity.serializers.common import model_time, require_knowledge, require_model
 from opportunity.services.analysis import get_setting
+from opportunity.services.embed_security import is_opportunity_embed_enabled
 
 
 class OpportunitySettingSerializer(serializers.Serializer):
@@ -41,6 +42,9 @@ def setting_to_dict(setting):
         'max_candidates': setting.max_candidates,
         'prompt_version': setting.prompt_version,
         'meta': setting.meta or {},
+        # The admin UI uses this runtime value to hide the opt-in embed tab;
+        # it is deliberately read-only and never persists in workspace data.
+        'embed_enabled': is_opportunity_embed_enabled(),
         'create_time': model_time(setting.create_time),
         'update_time': model_time(setting.update_time),
     }

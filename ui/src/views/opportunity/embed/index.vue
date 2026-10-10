@@ -46,12 +46,19 @@
         <section class="hx-panel" v-loading="loading">
           <div v-if="!analysis" class="hx-empty">提交需求后将在这里展示匹配结果</div>
           <template v-else>
-              <AnalysisProgress :status="analysis.status" :error="analysis.error_message" />
+              <AnalysisProgress
+                :status="analysis.status"
+                :error="analysis.error_message"
+                :progress="analysis.result_snapshot?.progress"
+                :cancelling="cancelling"
+                @cancel="onCancelInFlight"
+              />
               <RequirementProfilePanel
                 v-if="analysis.requirement_profile"
                 class="mt-16"
                 :profile="analysis.requirement_profile"
                 :version="analysis.requirement_profile_version"
+                :pending-recommendation="analysis.status === 'ANALYZING'"
               />
               <ClarificationPanel
                 v-if="analysis.status === 'NEED_CLARIFICATION'"
@@ -60,20 +67,30 @@
                 :loading="submitting"
                 @submit="onClarify"
               />
-              <CandidateCards class="mt-16" :candidates="candidates" @open-evidence="openEvidence" />
+              <CandidateCards
+                v-if="showCandidates"
+                class="mt-16"
+                :candidates="candidates"
+                :selected-code="selectedCode"
+                @select="selectedCode = $event"
+                @open-evidence="openEvidence"
+              />
               <MatchMatrix
+                v-if="showCandidates"
                 class="mt-16"
                 :requirements="analysis.requirement_profile?.requirements || []"
                 :candidates="candidates"
                 @open-evidence="openEvidence"
               />
               <CaseReferences
+                v-if="showCandidates || (analysis.result_snapshot?.case_enhancement && analysis.status !== 'ANALYZING')"
                 class="mt-16"
                 :candidates="candidates"
                 :enhancement="analysis.result_snapshot?.case_enhancement"
                 @open-evidence="openEvidence"
               />
               <AnalysisActions
+                v-if="analysis.status !== 'ANALYZING'"
                 class="mt-16"
                 :analysis="analysis"
                 :selected="selectedCode"
@@ -94,6 +111,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { CircleClose, Loading } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import LogoFull from '@/components/logo/LogoFull.vue'
 import type { CandidateResult, EvidenceItem, OpportunityAnalysis } from '@/api/type/opportunity'
 import {
@@ -109,6 +127,7 @@ import {
   type EmbedSession,
   EmbedApiError,
 } from '@/api/opportunity/embed'
+import { shouldRefreshHistory, useAnalysisPolling } from '../composables/useAnalysisPolling'
 import AnalysisActions from '../components/AnalysisActions.vue'
 import AnalysisProgress from '../components/AnalysisProgress.vue'
 import CandidateCards from '../components/CandidateCards.vue'
@@ -126,6 +145,7 @@ type InitMessage = {
   accessToken: string
 }
 
+const { t } = useI18n()
 const route = useRoute()
 const clientId = String(route.params.clientId || '')
 const state = ref<'WAITING' | 'VERIFYING' | 'READY' | 'ERROR'>('WAITING')
@@ -140,10 +160,42 @@ const history = ref<OpportunityAnalysis[]>([])
 const selectedCode = ref('')
 const evidenceVisible = ref(false)
 const activeEvidence = ref<EvidenceItem[]>([])
-let timer: number | undefined
+const cancelling = ref(false)
 let renewTimer: number | undefined
 
-const candidates = computed<CandidateResult[]>(() => analysis.value?.result_snapshot?.candidates || [])
+const applyAnalysis = (data: OpportunityAnalysis) => {
+  analysis.value = data
+  const scored = (data.result_snapshot?.candidates || []).filter((item) => Number(item.score) > 0)
+  if (!selectedCode.value || !scored.some((item) => item.product_code === selectedCode.value)) {
+    selectedCode.value = scored[0]?.product_code || ''
+  }
+}
+
+const poller = useAnalysisPolling<OpportunityAnalysis>({
+  fetch: (id) => getEmbedAnalysis(id),
+  onUpdate: (data) => {
+    const previous = analysis.value?.status
+    applyAnalysis(data)
+    if (shouldRefreshHistory(previous, data.status)) {
+      history.value = history.value.map((item) => (
+        item.id === data.id ? { ...item, status: data.status } : item
+      ))
+      loadHistory()
+    }
+  },
+  onError: (error) => {
+    if (error instanceof EmbedApiError && error.status === 401) requestNewToken()
+  },
+})
+
+const candidates = computed<CandidateResult[]>(() =>
+  (analysis.value?.result_snapshot?.candidates || [])
+    .filter((item) => Number(item.score) > 0)
+    .sort((a, b) => (a.rank || 99) - (b.rank || 99)),
+)
+const showCandidates = computed(
+  () => Boolean(candidates.value.length && analysis.value?.status !== 'ANALYZING'),
+)
 
 const postParent = (message: Record<string, unknown>, targetOrigin = '*') => {
   if (window.parent !== window) window.parent.postMessage(message, targetOrigin)
@@ -158,7 +210,7 @@ const announceReady = () => {
 
 const requestNewToken = () => {
   clearEmbedSession()
-  stopPoll()
+  poller.stop()
   state.value = 'WAITING'
   errorMessage.value = ''
   if (trustedOrigin.value) {
@@ -214,29 +266,16 @@ const loadHistory = async () => {
   history.value = data.records || []
 }
 
-const stopPoll = () => {
-  if (timer) window.clearInterval(timer)
-  timer = undefined
-}
-
 const loadAnalysis = async (id: string, silent = false) => {
   if (!silent) loading.value = true
   try {
-    analysis.value = await getEmbedAnalysis(id)
-    selectedCode.value = analysis.value.result_snapshot?.candidates?.[0]?.product_code || ''
-    if (analysis.value.status === 'ANALYZING') startPoll(id)
-    else stopPoll()
+    await poller.load(id)
   } catch (error) {
     if (error instanceof EmbedApiError && error.status === 401) requestNewToken()
     else if (!silent) ElMessage.error(error instanceof Error ? error.message : '商机读取失败')
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
-}
-
-const startPoll = (id: string) => {
-  stopPoll()
-  timer = window.setInterval(() => loadAnalysis(id, true), 2000)
 }
 
 const notifyChanged = () => {
@@ -268,7 +307,7 @@ const onClarify = async (answer: string) => {
   submitting.value = true
   try {
     analysis.value = await clarifyEmbedAnalysis(analysis.value.id, answer)
-    startPoll(analysis.value.id)
+    if (poller.shouldKeepPolling(analysis.value.status)) poller.start(analysis.value.id)
     notifyChanged()
   } finally {
     submitting.value = false
@@ -293,11 +332,38 @@ const onDecision = async (action: string, productCode?: string) => {
   }
 }
 
+const onCancelInFlight = async () => {
+  if (!analysis.value || cancelling.value) return
+  cancelling.value = true
+  try {
+    await ElMessageBox.confirm(
+      t('views.opportunity.cancelInFlightHint'),
+      t('views.opportunity.cancelAnalysis'),
+      {
+        confirmButtonText: t('views.opportunity.confirmCancel'),
+        cancelButtonText: t('views.opportunity.keepRunning'),
+        type: 'warning',
+      },
+    )
+    analysis.value = await decideEmbedAnalysis(analysis.value.id, { action: 'CANCEL', reason: '' })
+    poller.stop()
+    await loadHistory()
+    notifyChanged()
+    ElMessage.success(t('views.opportunity.cancelled'))
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      ElMessage.error(error instanceof Error ? error.message : '商机决策失败')
+    }
+  } finally {
+    cancelling.value = false
+  }
+}
+
 const onRetry = async () => {
   if (!analysis.value) return
   try {
     analysis.value = await retryEmbedAnalysis(analysis.value.id)
-    startPoll(analysis.value.id)
+    if (poller.shouldKeepPolling(analysis.value.status)) poller.start(analysis.value.id)
     notifyChanged()
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '重试失败')
@@ -324,22 +390,51 @@ onMounted(() => {
 })
 onUnmounted(() => {
   window.removeEventListener('message', handleMessage)
-  stopPoll()
+  poller.stop()
   if (renewTimer) window.clearTimeout(renewTimer)
   clearEmbedSession()
 })
 </script>
 
 <style scoped>
-.embed-shell { min-height: 100vh; background: var(--canvas); }
-.embed-header { height: 64px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; background: var(--surface); border-bottom: 1px solid var(--line); }
-.brand { display: flex; align-items: center; gap: 18px; font-size: 16px; font-weight: 700; color: var(--ink); }
-.session-user, .color-secondary { color: var(--muted); }
+.embed-shell {
+  min-height: 100vh;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  background: var(--canvas);
+}
+.embed-header {
+  height: 64px;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.brand { display: flex; align-items: center; gap: 12px; min-width: 0; flex-shrink: 1; font-size: 16px; font-weight: 700; color: var(--ink); }
+.session-user { color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .state-panel { min-height: calc(100vh - 64px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; }
 .state-panel h2, .state-panel p { margin: 0; }
-.embed-content { padding: 24px 24px 80px; }
-.history-list { display: grid; gap: 10px; }
+.embed-content {
+  padding: 24px 24px 80px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.history-list { display: grid; gap: 10px; min-width: 0; max-width: 100%; }
 .history-text { margin: 8px 0 0; color: var(--ink2); font-size: 12.5px; line-height: 1.5; }
 .ellipsis-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 @media (max-width: 1199px) { .embed-content { padding: 0 12px 40px; } }
+@media (max-width: 1023px) {
+  .embed-header { height: 56px; padding: 0 12px; }
+  .brand { gap: 8px; }
+}
 </style>

@@ -19,6 +19,7 @@ from opportunity.services.analysis import (
     retry_analysis,
     submit_clarification,
 )
+from opportunity.services.progress import normalize_progress
 from opportunity.services.requirement_history import requirement_version_to_dict
 
 
@@ -71,11 +72,14 @@ def analysis_to_dict(analysis: OpportunityAnalysis, detail=True):
     if detail:
         report = QuerySet(OpportunityReport).filter(analysis=analysis, is_current=True).first()
         latest_profile = QuerySet(RequirementProfileVersion).filter(analysis=analysis).order_by('-version').first()
+        snapshot = dict(analysis.result_snapshot or {})
+        if snapshot.get('progress'):
+            snapshot = {**snapshot, 'progress': normalize_progress(snapshot.get('progress'))}
         data.update({
             'requirement_profile': analysis.requirement_profile or {},
             'clarification_history': analysis.clarification_history or [],
             'clarification_questions': analysis.clarification_questions or [],
-            'result_snapshot': analysis.result_snapshot or {},
+            'result_snapshot': snapshot,
             'model_snapshot': analysis.model_snapshot or {},
             'knowledge_snapshot': analysis.knowledge_snapshot or {},
             'rule_version': analysis.rule_version,

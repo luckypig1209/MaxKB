@@ -13,6 +13,16 @@ class ProductAPI(APIMixin):
         return [
             OpenApiParameter(name='workspace_id', description='工作空间id', type=OpenApiTypes.STR,
                              location='path', required=True),
+            OpenApiParameter(name='name', description='按产品名称筛选', type=OpenApiTypes.STR,
+                             location='query', required=False),
+            OpenApiParameter(name='alias', description='按产品别名筛选', type=OpenApiTypes.STR,
+                             location='query', required=False),
+            OpenApiParameter(name='product_line', description='按产品线筛选', type=OpenApiTypes.STR,
+                             location='query', required=False),
+            OpenApiParameter(name='department', description='按主责部门编码或名称筛选', type=OpenApiTypes.STR,
+                             location='query', required=False),
+            OpenApiParameter(name='knowledge_status', description='按资料状态筛选 READY/PENDING',
+                             type=OpenApiTypes.STR, location='query', required=False),
         ]
 
     @staticmethod

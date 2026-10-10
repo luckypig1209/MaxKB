@@ -1,6 +1,9 @@
 # coding=utf-8
+from unittest.mock import patch
+
 from django.test import TestCase
 
+from maxkb.const import CONFIG
 from models_provider.models import Model
 from opportunity.serializers.setting import SettingOperateSerializer
 
@@ -32,3 +35,12 @@ class OpportunitySettingValidationTests(TestCase):
         })
         self.assertEqual(result['llm_model_id'], str(llm.id))
         self.assertEqual(result['rerank_model_id'], str(reranker.id))
+
+    def test_setting_exposes_runtime_embed_flag_without_persisting_it(self):
+        with patch.dict(CONFIG, {'OPPORTUNITY_EMBED_ENABLED': False}):
+            disabled = SettingOperateSerializer(data={'workspace_id': 'ws-a'}).one()
+        self.assertFalse(disabled['embed_enabled'])
+
+        with patch.dict(CONFIG, {'OPPORTUNITY_EMBED_ENABLED': True}):
+            enabled = SettingOperateSerializer(data={'workspace_id': 'ws-a'}).one()
+        self.assertTrue(enabled['embed_enabled'])

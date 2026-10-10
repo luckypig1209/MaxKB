@@ -21,6 +21,17 @@ const router = createRouter({
 router.beforeEach(
   async (to: RouteLocationNormalized, from: RouteLocationNormalized, next: NavigationGuardNext) => {
     NProgress.start()
+
+    // Legacy management URLs occasionally carried a session token in the
+    // query string.  Never adopt it, and remove it before the URL can enter
+    // browser history.  Local account login continues through /login.
+    if (Object.prototype.hasOwnProperty.call(to.query, 'token')) {
+      const query = { ...to.query }
+      delete query.token
+      next({ path: to.path, query, hash: to.hash, replace: true })
+      return
+    }
+
     if (to.name === '404') {
       next()
       return
@@ -28,12 +39,10 @@ router.beforeEach(
     const { user, login } = useStore()
 
     const notAuthRouteNameList = [
-      'login', 'ForgotPassword', 'ResetPassword', 'Chat', 'UserLogin', 'OpportunityEmbed',
+      'login', 'PortalSso', 'ForgotPassword', 'ResetPassword', 'Chat', 'UserLogin', 'OpportunityEmbed',
     ]
+
     if (!notAuthRouteNameList.includes(to.name ? to.name.toString() : '')) {
-      if (to.query && to.query.token) {
-        localStorage.setItem('token', to.query.token.toString())
-      }
       const token = login.getToken()
       if (!token) {
         next({

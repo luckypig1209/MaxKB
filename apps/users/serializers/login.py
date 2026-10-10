@@ -11,22 +11,19 @@ import base64
 import json
 
 from captcha.image import ImageCaptcha
-from django.core import signing
 from django.core.cache import cache
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
 from application.models import ApplicationAccessToken
-from common.auth.common import FileToken
-from common.constants.authentication_type import AuthenticationType
 from common.constants.cache_version import Cache_Version
 from common.database_model_manage.database_model_manage import DatabaseModelManage
 from common.exception.app_exception import AppApiException
 from common.utils.common import password_encrypt, password_verify, needs_password_upgrade, get_random_chars
 from common.utils.rsa_util import decrypt
-from maxkb.const import CONFIG
 from users.models import User
 from common.utils.logger import maxkb_logger
+from users.services.session import issue_system_user_session
 
 
 class LoginRequest(serializers.Serializer):
@@ -161,20 +158,7 @@ class LoginSerializer(serializers.Serializer):
         # 清除失败计数并生成令牌
         cache.delete(system_get_key(f"system_{username}"), version=system_version)
         cache.delete(system_get_key(f"system_{username}_lock"), version=system_version)
-        token = signing.dumps(
-            {
-                "username": user.username,
-                "id": str(user.id),
-                "email": user.email,
-                "type": AuthenticationType.SYSTEM_USER.value,
-            }
-        )
-
-        version, get_key = Cache_Version.TOKEN.value
-        timeout = CONFIG.get_session_timeout()
-        cache.set(get_key(token), user, timeout=timeout, version=version)
-
-        return {"token": token}, FileToken(str(user.id), AuthenticationType.SYSTEM_USER.value).to_token()
+        return issue_system_user_session(user)
 
     @staticmethod
     def _is_account_locked(username: str, failed_attempts: int) -> bool:

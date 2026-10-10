@@ -8,8 +8,14 @@ from rest_framework.views import APIView
 from common import result
 from common.auth import TokenAuth
 from common.auth.authentication import has_permissions
+from common.exception.app_exception import AppUnauthorizedFailed
 from opportunity.api.case import CaseAPI, CaseActionAPI, CaseBindingAPI
-from opportunity.serializers.case import CaseDocumentBindingSerializer, CaseOperateSerializer, CaseSerializer
+from opportunity.serializers.case import (
+    CaseDocumentBindingSerializer,
+    CaseOperateSerializer,
+    CaseSerializer,
+    list_available_case_documents,
+)
 from opportunity.views.setting import READ_ROLES, WRITE_ROLES
 from users.serializers.user import is_workspace_manage
 
@@ -49,6 +55,7 @@ class CaseView(APIView):
             'workspace_id': workspace_id,
             'user_id': str(request.user.id),
             'is_manager': True,
+            'require_document': True,
         }).insert(request.data))
 
     class Operate(APIView):
@@ -116,3 +123,24 @@ class CaseView(APIView):
                 'case_id': case_id,
                 'document_id': document_id,
             }).bind(request.data))
+
+
+class CaseAvailableDocumentView(APIView):
+    """Admin-only source picker for new case registration."""
+
+    authentication_classes = [TokenAuth]
+
+    @extend_schema(
+        methods=['GET'], description=_('List available case documents'),
+        summary=_('List available case documents'), operation_id=_('List available case documents'),
+        parameters=CaseAPI.get_parameters(), responses=CaseAPI.get_response(), tags=[_('Opportunity')],
+    )
+    @has_permissions(*WRITE_ROLES)
+    def get(self, request: Request, workspace_id: str):
+        if not _is_manager(request, workspace_id):
+            raise AppUnauthorizedFailed(403, _('No permission to access'))
+        return result.success(list_available_case_documents(
+            workspace_id,
+            user_id=str(request.user.id),
+            case_id=request.query_params.get('case_id') or None,
+        ))

@@ -11,6 +11,7 @@ import type {
   ProductProfile,
   OpportunityRecord,
   OpportunityFollowUpStatus,
+  CaseDocumentCandidate,
 } from '@/api/type/opportunity'
 
 const prefix: any = { _value: '/workspace/' }
@@ -33,7 +34,8 @@ const updateDepartment = (id: string, data: Partial<DepartmentProfile>, loading?
 const deleteDepartment = (id: string, loading?: Ref<boolean>) =>
   del(`${prefix.value}/departments/${id}`, undefined, {}, loading)
 
-const listProducts = (loading?: Ref<boolean>) => get(`${prefix.value}/products`, {}, loading)
+const listProducts = (params?: Record<string, unknown>, loading?: Ref<boolean>) =>
+  get(`${prefix.value}/products`, params || {}, loading)
 const createProduct = (data: Partial<ProductProfile>, loading?: Ref<boolean>) =>
   post(`${prefix.value}/products`, data, undefined, loading)
 const updateProduct = (id: string, data: Partial<ProductProfile>, loading?: Ref<boolean>) =>
@@ -49,13 +51,24 @@ const bindProductDocument = (
 
 const listCases = (params?: Record<string, unknown>, loading?: Ref<boolean>) =>
   get(`${prefix.value}/cases`, params, loading)
-const createCase = (data: Partial<CaseProfile> & { product_codes: string[] }, loading?: Ref<boolean>) =>
+const listAvailableCaseDocuments = (
+  params?: { case_id?: string },
+  loading?: Ref<boolean>,
+): Promise<Result<CaseDocumentCandidate[]>> =>
+  get(`${prefix.value}/cases/available-documents`, params || {}, loading)
+type CaseWritePayload = Partial<CaseProfile> & {
+  product_codes: string[]
+  document_id?: string
+  document_version?: string
+  allow_download?: boolean
+}
+const createCase = (data: CaseWritePayload, loading?: Ref<boolean>) =>
   post(`${prefix.value}/cases`, data, undefined, loading)
 const getCase = (id: string, loading?: Ref<boolean>): Promise<Result<CaseProfile>> =>
   get(`${prefix.value}/cases/${id}`, {}, loading)
 const updateCase = (
   id: string,
-  data: Partial<CaseProfile> & { product_codes: string[] },
+  data: CaseWritePayload,
   loading?: Ref<boolean>,
 ) => put(`${prefix.value}/cases/${id}`, data, undefined, loading)
 const changeCaseStatus = (
@@ -135,6 +148,7 @@ export default {
   deleteProduct,
   bindProductDocument,
   listCases,
+  listAvailableCaseDocuments,
   createCase,
   getCase,
   updateCase,

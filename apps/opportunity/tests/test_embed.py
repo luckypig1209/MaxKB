@@ -19,13 +19,21 @@ from opportunity.serializers.embed import (
     EmbedTokenExchangeSerializer,
 )
 from opportunity.services.embed_security import (
+    EMBED_FEATURE_DISABLED_CODE,
+    EMBED_FEATURE_DISABLED_MESSAGE,
     TOKEN_SALT,
     hash_client_secret,
+    is_opportunity_embed_enabled,
     normalize_origin,
     revoke_embed_session,
     validate_embed_token,
 )
-from opportunity.views.embed import EmbedAnalysisView, EmbedSessionView
+from opportunity.views.embed import (
+    EmbedAnalysisView,
+    EmbedClientView,
+    EmbedSessionView,
+    EmbedTokenExchangeView,
+)
 from users.models import User
 
 
@@ -34,6 +42,8 @@ class OpportunityEmbedSecurityTests(TestCase):
     origin = 'https://crm.example.com'
 
     def setUp(self):
+        self.embed_enabled_patch = patch.dict(CONFIG, {'OPPORTUNITY_EMBED_ENABLED': True})
+        self.embed_enabled_patch.start()
         self.user = User.objects.create(
             username='embed-user', nick_name='embed-user', password='unused', role='ADMIN', is_active=True,
         )
@@ -48,6 +58,10 @@ class OpportunityEmbedSecurityTests(TestCase):
             token_ttl_seconds=120,
             creator_user_id=str(self.user.id),
         )
+
+    def tearDown(self):
+        self.embed_enabled_patch.stop()
+        super().tearDown()
 
     def exchange(self, **overrides):
         data = {
@@ -219,3 +233,61 @@ class OpportunityEmbedSecurityTests(TestCase):
         self.assertEqual(created.user_id, str(self.user.id))
         self.assertEqual(created.workspace_id, self.workspace_id)
         delay.assert_called_once_with(str(created.id))
+
+
+class OpportunityEmbedFeatureFlagTests(TestCase):
+    def test_disabled_flag_is_false_by_default_and_coerces_string_values(self):
+        with patch.dict(CONFIG, {'OPPORTUNITY_EMBED_ENABLED': False}):
+            self.assertFalse(is_opportunity_embed_enabled())
+        with patch.dict(CONFIG, {'OPPORTUNITY_EMBED_ENABLED': 'false'}):
+            self.assertFalse(is_opportunity_embed_enabled())
+        with patch.dict(CONFIG, {'OPPORTUNITY_EMBED_ENABLED': 'true'}):
+            self.assertTrue(is_opportunity_embed_enabled())
+
+    def test_all_embed_endpoints_return_same_disabled_result_before_authentication(self):
+        factory = APIRequestFactory()
+        requests = [
+            (EmbedClientView.as_view(), factory.get('/workspace/default/opportunity/embed/clients'),
+             {'workspace_id': 'default'}),
+            (EmbedClientView.as_view(), factory.post('/workspace/default/opportunity/embed/clients', {}),
+             {'workspace_id': 'default'}),
+            (EmbedClientView.Operate.as_view(), factory.put('/workspace/default/opportunity/embed/clients/c'),
+             {'workspace_id': 'default', 'client_id': 'c'}),
+            (EmbedClientView.Operate.as_view(), factory.delete('/workspace/default/opportunity/embed/clients/c'),
+             {'workspace_id': 'default', 'client_id': 'c'}),
+            (EmbedClientView.RotateSecret.as_view(), factory.post('/workspace/default/opportunity/embed/clients/c/rotate-secret'),
+             {'workspace_id': 'default', 'client_id': 'c'}),
+            (EmbedClientView.RevokeSession.as_view(), factory.post('/workspace/default/opportunity/embed/sessions/s/revoke'),
+             {'workspace_id': 'default', 'session_id': 's'}),
+            (EmbedTokenExchangeView.as_view(), factory.post('/opportunity/embed/tokens', {}), {}),
+            (EmbedSessionView.as_view(), factory.get('/opportunity/embed/session'), {}),
+            (EmbedAnalysisView.as_view(), factory.get('/opportunity/embed/analyses'), {}),
+            (EmbedAnalysisView.as_view(), factory.post('/opportunity/embed/analyses', {}), {}),
+            (EmbedAnalysisView.Operate.as_view(), factory.get('/opportunity/embed/analyses/a'), {'analysis_id': 'a'}),
+            (EmbedAnalysisView.Clarification.as_view(), factory.post('/opportunity/embed/analyses/a/clarifications', {}),
+             {'analysis_id': 'a'}),
+            (EmbedAnalysisView.Retry.as_view(), factory.post('/opportunity/embed/analyses/a/retry', {}), {'analysis_id': 'a'}),
+            (EmbedAnalysisView.Confirm.as_view(), factory.post('/opportunity/embed/analyses/a/confirm', {}), {'analysis_id': 'a'}),
+            (EmbedAnalysisView.ExportReport.as_view(), factory.get('/opportunity/embed/analyses/a/report/export'),
+             {'analysis_id': 'a'}),
+        ]
+        with patch.dict(CONFIG, {'OPPORTUNITY_EMBED_ENABLED': False}):
+            responses = [view(request, **kwargs) for view, request, kwargs in requests]
+
+        payloads = [json.loads(response.content) for response in responses]
+        self.assertTrue(all(response.status_code == 404 for response in responses))
+        self.assertTrue(all(payload['code'] == EMBED_FEATURE_DISABLED_CODE for payload in payloads))
+        self.assertTrue(all(payload['message'] == EMBED_FEATURE_DISABLED_MESSAGE for payload in payloads))
+        self.assertTrue(all(payload['data'] is None for payload in payloads))
+
+    def test_embed_page_path_returns_same_disabled_result_without_database_lookup(self):
+        factory = RequestFactory()
+        middleware = OpportunityEmbedHeadersMiddleware(lambda request: HttpResponse('<html>embed</html>'))
+        with patch.dict(CONFIG, {'OPPORTUNITY_EMBED_ENABLED': False}):
+            response = middleware.process_response(
+                factory.get('/admin/opportunity/embed/opp_existing'), HttpResponse('<html>embed</html>'),
+            )
+        payload = json.loads(response.content)
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(payload['code'], EMBED_FEATURE_DISABLED_CODE)
+        self.assertEqual(payload['message'], EMBED_FEATURE_DISABLED_MESSAGE)

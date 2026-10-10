@@ -14,6 +14,7 @@ export type RecommendationLevel = 'RECOMMENDED' | 'TECHNICAL_CONFIRMATION' | 'NO
 export interface OpportunitySetting {
   id?: string
   workspace_id?: string
+  embed_enabled?: boolean
   llm_model_id?: string | null
   product_knowledge_id?: string | null
   case_knowledge_id?: string | null
@@ -66,6 +67,17 @@ export interface CaseDocumentReference {
   document_id: string
   document_version: string
   is_active: boolean
+}
+
+export interface CaseDocumentCandidate {
+  id: string
+  name: string
+  knowledge_id: string
+  status: string
+  parsed: boolean
+  is_bound: boolean
+  document_version: string
+  update_time?: string | null
 }
 
 export interface CaseProfile {
@@ -122,6 +134,17 @@ export interface ProductProfile {
   status: 'DRAFT' | 'ACTIVE' | 'INACTIVE'
   department: ProductDepartment
   owner_department_id?: string
+  meta?: {
+    support?: {
+      manager?: string
+      phone?: string
+      source?: string
+      updated_at?: string
+    }
+    [key: string]: unknown
+  }
+  knowledge_ready?: boolean
+  knowledge_status?: 'READY' | 'PENDING'
 }
 
 export interface RequirementItem {
@@ -210,6 +233,43 @@ export interface CaseReference {
   evidence: EvidenceItem[]
 }
 
+export type ProgressState = 'RUNNING' | 'DONE' | 'FAILED' | 'CANCELLED' | 'WAITING_USER'
+
+export interface AnalysisProgressCounters {
+  queries_done?: number
+  queries_total?: number
+  query_attempts?: number
+  retrieved_hits?: number
+  raw_hits?: number
+  unique_paragraphs?: number
+  products_found?: number
+  products_matched?: number
+  match_model_calls?: number
+  match_model_attempts?: number
+  requirement_count?: number
+  requirement_chars?: number
+}
+
+export interface AnalysisProgressSnapshot {
+  version?: number
+  attempt?: number
+  state?: ProgressState
+  current?: string
+  detail?: string
+  index?: number
+  total?: number
+  percent?: number
+  completed_units?: number
+  total_units?: number
+  started_at?: string
+  stage_started_at?: string
+  last_updated_at?: string
+  elapsed_ms?: number
+  counters?: AnalysisProgressCounters
+  timings?: Array<Record<string, unknown>>
+  steps?: Array<{ key: string; label: string; status: 'done' | 'active' | 'pending' }>
+}
+
 export interface OpportunityAnalysis {
   id: string
   status: AnalysisStatus
@@ -228,13 +288,7 @@ export interface OpportunityAnalysis {
       count: number
       warning?: string | null
     }
-    progress?: {
-      current: string
-      detail?: string
-      index: number
-      total: number
-      steps: Array<{ key: string; label: string; status: 'done' | 'active' | 'pending' }>
-    }
+    progress?: AnalysisProgressSnapshot
   }
   confirmed_product_code?: string | null
   report?: {

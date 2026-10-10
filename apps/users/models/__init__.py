@@ -7,3 +7,4 @@
     @desc:
 """
 from .user import *
+from .external_identity import *

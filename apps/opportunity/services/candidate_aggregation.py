@@ -11,6 +11,14 @@ from collections import defaultdict
 from django.db.models import QuerySet
 
 from opportunity.models import ProductProfile, ProductStatus
+from opportunity.services.retrieval_optimization import dedupe_evidence_hits
+
+
+def _similarity(value) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def build_search_queries(profile: dict) -> list:
@@ -32,13 +40,10 @@ def build_search_queries(profile: dict) -> list:
 
 def aggregate_by_product(workspace_id, hits: list) -> dict:
     grouped = defaultdict(list)
-    seen = defaultdict(set)
     for hit in hits:
         product_code = hit.get('product_code')
-        paragraph_id = str(hit.get('paragraph_id'))
-        if not product_code or paragraph_id in seen[product_code]:
+        if not product_code:
             continue
-        seen[product_code].add(paragraph_id)
         grouped[product_code].append(hit)
     products = {
         item.code: item
@@ -53,9 +58,21 @@ def aggregate_by_product(workspace_id, hits: list) -> dict:
         product = products.get(product_code)
         if product is None:
             continue
-        evidence.sort(key=lambda item: item.get('similarity') or 0, reverse=True)
+        evidence = dedupe_evidence_hits(evidence)
+        evidence.sort(
+            # Python's sort is stable: equal scores retain retrieval order.
+            key=lambda item: -_similarity(item.get('similarity')),
+        )
         result[product_code] = {
             'product': product,
             'evidence': evidence[:20],
         }
-    return result
+    # Retrieval order can vary by backend shard.  Product preprocessing must
+    # remain deterministic without changing final scoring or ranking rules.
+    return dict(sorted(
+        result.items(),
+        key=lambda item: (
+            -max((_similarity(hit.get('similarity')) for hit in item[1]['evidence']), default=0),
+            str(item[0]),
+        ),
+    ))

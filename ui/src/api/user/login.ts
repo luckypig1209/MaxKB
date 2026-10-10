@@ -1,6 +1,6 @@
 import {Result} from '@/request/Result'
 import {get, post} from '@/request/index'
-import type {LoginRequest} from '@/api/type/login'
+import type { LoginRequest, PortalSsoExchangeRequest, PortalSsoExchangeResponse } from '@/api/type/login'
 import type {Ref} from 'vue'
 import type {User} from "@/api/type/user.ts";
 
@@ -104,6 +104,14 @@ const samlLogin: (loading?: Ref<boolean>) => Promise<Result<any>> = (
 ) => {
   return get('/saml2', '', loading)
 }
+
+/** Consume an anonymous portal ticket and receive the normal BIA session. */
+const exchangePortalSso: (
+  request: PortalSsoExchangeRequest,
+  loading?: Ref<boolean>,
+) => Promise<Result<PortalSsoExchangeResponse>> = (request, loading) => {
+  return post('/user/sso/portal/exchange', request, undefined, loading)
+}
 export default {
   login,
   logout,
@@ -117,5 +125,6 @@ export default {
   getLarkCallback,
   getQrSource,
   ldapLogin,
-  samlLogin
+  samlLogin,
+  exchangePortalSso,
 }

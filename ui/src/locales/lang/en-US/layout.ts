@@ -3,6 +3,8 @@ export default {
   wiki: 'User Manual',
   forum: 'Forum For Help',
   logout: 'Log Out',
+  openMenu: 'Open menu',
+  menu: 'Menu',
   apiKey: 'API Key',
   apiServiceAddress: 'API Service Address',
   language: 'Language',

@@ -2,6 +2,9 @@
    不改全局 MaxKB 壳，只作用在 .hx-tool-page。 */
 .hx-tool-page {
   color: var(--ink);
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   --el-color-primary: var(--accent);
   --el-color-primary-dark-2: var(--accent-ink);
   --el-color-primary-light-3: var(--accent-ink);

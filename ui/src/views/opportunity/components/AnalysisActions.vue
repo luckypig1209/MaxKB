@@ -1,6 +1,10 @@
 <template>
-  <div class="flex-between">
-    <el-select v-if="analysis.status === 'WAITING_CONFIRMATION'" v-model="selected" style="width: 240px">
+  <div class="analysis-actions">
+    <el-select
+      v-if="analysis.status === 'WAITING_CONFIRMATION'"
+      v-model="selected"
+      class="analysis-actions__select"
+    >
       <el-option
         v-for="item in confirmable"
         :key="item.product_code"
@@ -8,7 +12,7 @@
         :value="item.product_code"
       />
     </el-select>
-    <div>
+    <div class="analysis-actions__buttons">
       <el-button v-if="analysis.report" @click="$emit('export')">导出报告</el-button>
       <el-button v-if="analysis.status === 'FAILED'" @click="$emit('retry')">
         {{ $t('views.opportunity.retry') }}
@@ -53,3 +57,39 @@ watch(
   },
 )
 </script>
+<style scoped>
+.analysis-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.analysis-actions__select {
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 220px;
+}
+.analysis-actions__select :deep(.el-select__wrapper) {
+  min-width: 0;
+  max-width: 100%;
+}
+.analysis-actions__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+@media (max-width: 1023px) {
+  .analysis-actions {
+    flex-direction: column;
+  }
+  .analysis-actions__select {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+}
+</style>

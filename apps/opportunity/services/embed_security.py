@@ -12,7 +12,8 @@ from django.core import signing
 from django.db.models import QuerySet
 from django.utils import timezone
 
-from common.exception.app_exception import AppApiException, AppAuthenticationFailed
+from common.exception.app_exception import AppApiException, AppAuthenticationFailed, NotFound404
+from maxkb.const import CONFIG
 from opportunity.models import DepartmentProfile, DepartmentStatus, OpportunityEmbedClient, OpportunityEmbedSession
 from users.models import User
 
@@ -21,12 +22,37 @@ TOKEN_TYPE = 'OPPORTUNITY_EMBED'
 MIN_TOKEN_TTL_SECONDS = 60
 MAX_TOKEN_TTL_SECONDS = 900
 MAX_ACTIVE_SESSIONS_PER_CLIENT = 1000
+EMBED_ENABLED_CONFIG_KEY = 'OPPORTUNITY_EMBED_ENABLED'
+EMBED_FEATURE_DISABLED_CODE = 404
+EMBED_FEATURE_DISABLED_MESSAGE = '嵌入接入功能未启用'
+EMBED_FEATURE_DISABLED_HTTP_STATUS = 404
 DEFAULT_EMBED_SCOPES = [
     'analysis:create',
     'analysis:read',
     'analysis:decision',
     'report:export',
 ]
+
+
+def is_opportunity_embed_enabled() -> bool:
+    """Return whether the opportunity embed integration is enabled.
+
+    Configuration values can come from YAML or environment variables, so keep
+    the boolean coercion explicit instead of relying on Python's truthiness
+    (where the string ``"false"`` would otherwise be treated as true).
+    """
+
+    value = CONFIG.get(EMBED_ENABLED_CONFIG_KEY, False)
+    if isinstance(value, str):
+        return value.strip().lower() in {'1', 'true', 'yes', 'on'}
+    return bool(value)
+
+
+def ensure_opportunity_embed_enabled() -> None:
+    """Raise the stable disabled response used by every embed endpoint."""
+
+    if not is_opportunity_embed_enabled():
+        raise NotFound404(EMBED_FEATURE_DISABLED_CODE, EMBED_FEATURE_DISABLED_MESSAGE)
 
 
 @dataclass(frozen=True)

@@ -22,6 +22,7 @@ from opportunity.serializers.case import (
     CASE_BINDABLE_STATUSES,
     CaseOperateSerializer,
     CaseWriteSerializer,
+    is_case_document_parsed,
 )
 from opportunity.services.case_access import is_case_retrievable, sanitize_case_value
 from opportunity.services.knowledge_metadata import is_case_document_retrievable
@@ -45,6 +46,15 @@ def build_case(**overrides):
 
 
 class CaseAccessTests(SimpleTestCase):
+    def test_case_document_parsing_requires_embedding_success(self):
+        self.assertFalse(is_case_document_parsed(SimpleNamespace(is_active=True, char_length=10, status='nnnn')))
+        self.assertTrue(is_case_document_parsed(SimpleNamespace(is_active=True, char_length=10, status='nnn2')))
+        self.assertFalse(is_case_document_parsed(SimpleNamespace(is_active=True, char_length=10, status='nnn0')))
+        self.assertFalse(is_case_document_parsed(SimpleNamespace(is_active=True, char_length=10, status='nnn3')))
+        self.assertFalse(is_case_document_parsed(SimpleNamespace(is_active=True, char_length=10, status='n3nn')))
+        self.assertFalse(is_case_document_parsed(SimpleNamespace(is_active=False, char_length=10, status='nnn2')))
+        self.assertFalse(is_case_document_parsed(SimpleNamespace(is_active=True, char_length=0, status='nnn2')))
+
     def test_only_published_desensitized_and_effective_case_is_retrievable(self):
         self.assertTrue(is_case_retrievable(build_case(), user_id='user-a'))
         self.assertFalse(is_case_retrievable(build_case(status=CaseStatus.APPROVED), user_id='user-a'))

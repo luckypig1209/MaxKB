@@ -1,0 +1,197 @@
+{
+  "source": {
+    "file": "鸿信工具型产品/工具型产品名录及支持团队联系方式.md",
+    "updated_at": "2026-10-09"
+  },
+  "departments": [
+    {"code": "SHZL", "name": "社会治理"},
+    {"code": "YFZX", "name": "研发中心"},
+    {"code": "SZFZ", "name": "数智发展", "source_name": "数智发展部"},
+    {"code": "SZZF", "name": "数字政府"},
+    {"code": "ZHCS", "name": "智慧城市"},
+    {"code": "ZNQG", "name": "智能企管"},
+    {"code": "ZNYW", "name": "智能云网"}
+  ],
+  "products": [
+    {
+      "code": "YITU",
+      "name": "翼图-低代码可视化平台",
+      "aliases": ["翼图", "低代码可视化平台"],
+      "product_line": "市域治理",
+      "description": "面向社会治理的低代码可视化建模、配置与大屏展示平台。",
+      "department_code": "SHZL",
+      "document_name": "",
+      "support": {"manager": "张永强", "phone": "17768141106", "source": "鸿信工具型产品/工具型产品名录及支持团队联系方式.md", "updated_at": "2026-10-09"}
+    },
+    {
+      "code": "YIJIE",
+      "name": "翼界零信任安全访问控制平台",
+      "aliases": ["翼界", "零信任", "零信任访问控制平台"],
+      "product_line": "安全访问",
+      "description": "通过资源隐身、身份认证、通信加密和动态信任评估保障远程及跨网访问。",
+      "department_code": "YFZX",
+      "document_name": "翼界-零信任安全访问控制平台.md",
+      "support": {"manager": "陈永超", "phone": "18061105715", "source": "鸿信工具型产品/工具型产品名录及支持团队联系方式.md", "updated_at": "2026-10-09"}
+    },
+    {
+      "code": "YISHU",
+      "name": "翼数-数据开发与治理服务平台",
+      "aliases": ["翼数", "数据开发", "数据治理", "数据开发与治理服务平台"],
+      "product_line": "数据中心",
+      "description": "面向数据开发、集成、治理与服务的数据平台。",
+      "department_code": "SZFZ",
+      "document_name": "",
+      "support": {"manager": "卢冰涧", "phone": "17366358232", "source": "鸿信工具型产品/工具型产品名录及支持团队联系方式.md", "updated_at": "2026-10-09"}
+    },
+    {
+      "code": "YILIAN_VIDEO",
+      "name": "翼联-智能新视讯调度平台",
+      "aliases": ["翼联", "鸿雁", "智能新视讯调度平台"],
+      "product_line": "政务服务",
+      "description": "统一接入视讯资源、调度视频应用与运营监控的智能新视讯平台。",
+      "department_code": "SZZF",
+      "document_name": "",
+      "support": {"manager": "夏明明", "phone": "17611150810", "source": "鸿信工具型产品/工具型产品名录及支持团队联系方式.md", "updated_at": "2026-10-09"}
+    },
+    {
+      "code": "YIJU",
+      "name": "翼聚视频汇聚平台",
+      "aliases": ["翼聚", "视频汇聚", "视频汇聚平台"],
+      "product_line": "天翼视联",
+      "description": "统一接入、汇聚、存储、级联和分发多品牌多协议视频资源的平台。",
+      "department_code": "ZHCS",
+      "document_name": "翼聚-视频汇聚平台.md",
+      "support": {"manager": "蔺玲", "phone": "18851051506", "source": "鸿信工具型产品/工具型产品名录及支持团队联系方式.md", "updated_at": "2026-10-09"}
+    },
+    {
+      "code": "YIXI",
+      "name": "翼析-业数融合平台",
+      "aliases": ["翼析", "业数融合平台"],
+      "product_line": "数据中心",
+      "description": "面向业务与数据融合分析、指标管理与协同应用的平台。",
+      "department_code": "SZFZ",
+      "document_name": "",
+      "support": {"manager": "段卓艳", "phone": "18168405693", "source": "鸿信工具型产品/工具型产品名录及支持团队联系方式.md", "updated_at": "2026-10-09"}
+    },
+    {
+      "code": "YIJIE_RPA",
+      "name": "翼捷-RPA机器人",
+      "aliases": ["翼捷", "RPA", "RPA机器人"],
+      "product_line": "智能企管",
+      "description": "通过机器人流程自动化实现重复业务任务编排、执行与审计。",
+      "department_code": "ZNQG",
+      "document_name": "",
+      "support": {"manager": "仝飞翔", "phone": "17751002472", "source": "鸿信工具型产品/工具型产品名录及支持团队联系方式.md", "updated_at": "2026-10-09"}
+    },
+    {
+      "code": "YISHI",
+      "name": "翼石网络运营管理中心",
+      "aliases": ["翼石", "磐石", "网络运营管理中心"],
+      "product_line": "智能云网",
+      "description": "面向网络监控、巡检拨测、规则流程编排和故障自动处置的网络运营平台。",
+      "department_code": "ZNYW",
+      "document_name": "翼石-网络运营管理中心.md",
+      "support": {"manager": "刘昱峰", "phone": "19102529568", "source": "鸿信工具型产品/工具型产品名录及支持团队联系方式.md", "updated_at": "2026-10-09"}
+    },
+    {
+      "code": "YIGUAN",
+      "name": "翼观全链路监控告警中心",
+      "aliases": ["翼观", "虎威", "全链路监控告警中心"],
+      "product_line": "智能云网",
+      "description": "覆盖网络、IaaS、PaaS、SaaS 和客户端的全链路可观测、告警与故障定位平台。",
+      "department_code": "ZNYW",
+      "document_name": "翼观-全链路监控告警中心.md",
+      "support": {"manager": "严筱蓉", "phone": "19962038537", "source": "鸿信工具型产品/工具型产品名录及支持团队联系方式.md", "updated_at": "2026-10-09"}
+    },
+    {
+      "code": "YILING",
+      "name": "翼凌-多云管理中心",
+      "aliases": ["翼凌", "凌霄", "多云管理中心"],
+      "product_line": "智能云网",
+      "description": "面向多云资源统一纳管、编排、成本与运营的管理中心。",
+      "department_code": "ZNYW",
+      "document_name": "",
+      "support": {"manager": "顾乃嘉", "phone": "15366181397", "source": "鸿信工具型产品/工具型产品名录及支持团队联系方式.md", "updated_at": "2026-10-09"}
+    },
+    {
+      "code": "YITENG",
+      "name": "翼藤IT服务管理中心",
+      "aliases": ["翼藤", "常青藤", "IT服务管理中心"],
+      "product_line": "智能云网",
+      "description": "面向政企产数项目售后接维、工单调度、合作方和主动服务的运营管理平台。",
+      "department_code": "ZNYW",
+      "document_name": "翼藤-IT服务管理中心.md",
+      "support": {"manager": "郑文睿", "phone": "15365057825", "source": "鸿信工具型产品/工具型产品名录及支持团队联系方式.md", "updated_at": "2026-10-09"}
+    },
+    {
+      "code": "YIXIAO",
+      "name": "翼效研发效能管理平台",
+      "aliases": ["翼效", "研发效能", "研发效能管理平台"],
+      "product_line": "研发效能",
+      "description": "覆盖项目协作、持续集成、自动化测试、发布运维和软件供应商治理的研发平台。",
+      "department_code": "YFZX",
+      "document_name": "翼效-研发效能管理平台.md",
+      "support": {"manager": "杨若愚", "phone": "17761740213", "source": "鸿信工具型产品/工具型产品名录及支持团队联系方式.md", "updated_at": "2026-10-09"}
+    },
+    {
+      "code": "YIGOU",
+      "name": "翼构-统一开发平台",
+      "aliases": ["翼构", "统一开发平台"],
+      "product_line": "",
+      "description": "面向研发团队提供统一代码、流水线、环境和交付能力的开发平台。",
+      "department_code": "YFZX",
+      "document_name": "",
+      "support": {"manager": "鲁飞", "phone": "18136841015", "source": "鸿信工具型产品/工具型产品名录及支持团队联系方式.md", "updated_at": "2026-10-09"}
+    },
+    {
+      "code": "YILIAN_BAAS",
+      "name": "翼链-区块链数据安全可信BaaS平台",
+      "aliases": ["翼链", "区块链", "数据安全可信BaaS平台"],
+      "product_line": "数据中心",
+      "description": "面向区块链数据安全、可信共享与应用服务的BaaS平台。",
+      "department_code": "SZFZ",
+      "document_name": "",
+      "support": {"manager": "孙文荣", "phone": "18913840921", "source": "鸿信工具型产品/工具型产品名录及支持团队联系方式.md", "updated_at": "2026-10-09"}
+    },
+    {
+      "code": "YISUAN",
+      "name": "翼算-标训推一体化平台",
+      "aliases": ["翼算", "标训推一体化平台"],
+      "product_line": "AI中心",
+      "description": "面向模型训练、推理与算力资源协同的一体化平台。",
+      "department_code": "SZFZ",
+      "document_name": "",
+      "support": {"manager": "彭志清", "phone": "18114018295", "source": "鸿信工具型产品/工具型产品名录及支持团队联系方式.md", "updated_at": "2026-10-09"}
+    },
+    {
+      "code": "YIZHI",
+      "name": "翼知行业大模型聚合平台",
+      "aliases": ["翼知", "行业大模型", "行业大模型聚合平台"],
+      "product_line": "AI中心",
+      "description": "支持RAG知识问答、智能问数、智能体和工作流编排的大模型应用构建平台。",
+      "department_code": "SZFZ",
+      "document_name": "翼知-行业大模型聚合平台.md",
+      "support": {"manager": "张成秋", "phone": "18994003168", "source": "鸿信工具型产品/工具型产品名录及支持团队联系方式.md", "updated_at": "2026-10-09"}
+    },
+    {
+      "code": "YIMOU",
+      "name": "翼眸视觉AI算法平台",
+      "aliases": ["翼眸", "视觉AI", "视觉AI算法平台"],
+      "product_line": "AI中心",
+      "description": "面向交通、安防、安全生产和城乡管理的视频AI识别与算法统一管理平台。",
+      "department_code": "SZFZ",
+      "document_name": "翼眸-视觉AI算法平台.md",
+      "support": {"manager": "严娇", "phone": "17712875495", "source": "鸿信工具型产品/工具型产品名录及支持团队联系方式.md", "updated_at": "2026-10-09"}
+    },
+    {
+      "code": "YIJING",
+      "name": "翼境-CIM可视化三维快速开发平台",
+      "aliases": ["翼境", "CIM", "可视化三维快速开发平台"],
+      "product_line": "",
+      "description": "面向CIM场景的三维可视化建模、开发与快速交付平台。",
+      "department_code": "YFZX",
+      "document_name": "",
+      "support": {"manager": "单雪瑞", "phone": "17751002460", "source": "鸿信工具型产品/工具型产品名录及支持团队联系方式.md", "updated_at": "2026-10-09"}
+    }
+  ]
+}

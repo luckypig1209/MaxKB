@@ -16,4 +16,14 @@ interface LoginRequest {
    */
   encryptedData?: string
 }
-export type { LoginRequest }
+
+interface PortalSsoExchangeRequest {
+  ticket: string
+}
+
+interface PortalSsoExchangeResponse {
+  token: string
+  target?: string
+}
+
+export type { LoginRequest, PortalSsoExchangeRequest, PortalSsoExchangeResponse }

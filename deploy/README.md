@@ -45,6 +45,14 @@ docker compose up -d
 
 端口使用 `29090`。
 
+## 商机嵌入接入开关
+
+商机分析的业务系统嵌入能力默认关闭。保持 `.env` 中
+`MAXKB_OPPORTUNITY_EMBED_ENABLED=false` 时，设置页不会显示“嵌入接入”，
+嵌入客户端、令牌、会话和分析端点也会返回统一的 404 未启用结果；已有
+客户端数据不会被删除。确认有正式接入方后，将该值改为 `true` 并重启服务，
+即可恢复原有来源白名单、短期令牌和权限逻辑。
+
 ## 构建并保存镜像
 
 版本号和短提交号在**本机**算好再带到服务器。174 上不要安装、也不要使用 git。
@@ -59,6 +67,27 @@ bash deploy/build-and-save.sh bia-v0.1.0 "$SHA" /data/bia/images
 ```
 
 每次重新构建后都会在 `/data/bia/images` 生成可追溯 tar。
+
+## 制作 x86 离线一键安装包
+
+在构建完成且镜像已加载到本机后执行：
+
+```bash
+export BIA_PLATFORM=linux/amd64
+bash deploy/package-offline-release.sh \
+  bia-v0.3.0 <short-sha> \
+  images/bia_bia-v0.3.0_<short-sha>_amd64.tar \
+  releases
+```
+
+输出的 `bia-<version>-<sha>-amd64.tar.gz` 上传服务器后，只需解压并执行
+`sudo ./install.sh`。详细要求见 `deploy/OFFLINE_INSTALL.md`。
+
+ARM 构建机内存不足以在 QEMU 中执行前端编译时，可先在宿主机执行前端
+`type-check`、`build-only`、`build-chat`，再使用
+`installer/Dockerfile-stage-build` 导出 x86 后端阶段，并通过
+`installer/Dockerfile-prebuilt-ui` 合并 `ui/dist`。前端产物是静态文件，
+该方式不会把 ARM 原生二进制带入 amd64 运行镜像。
 
 ## 启停
 

@@ -7,6 +7,8 @@ app_name = "user"
 # fmt: off
 urlpatterns = [
     path('user/login', views.LoginView.as_view(), name='login'),
+    path('user/sso/portal/tickets', views.PortalTicketView.as_view(), name='portal_sso_tickets'),
+    path('user/sso/portal/exchange', views.PortalTicketExchangeView.as_view(), name='portal_sso_exchange'),
     path('user/profile', views.UserProfileView.as_view(), name="user_profile"),
     path('user/captcha', views.CaptchaView.as_view(), name='captcha'),
     path('user/test', views.TestPermissionsUserView.as_view(), name="test"),

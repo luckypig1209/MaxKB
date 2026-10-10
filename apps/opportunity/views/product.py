@@ -17,6 +17,13 @@ from common.auth.authentication import has_permissions
 from opportunity.api.product import ProductAPI, ProductBindingAPI
 from opportunity.serializers.product import ProductDocumentBindingSerializer, ProductOperateSerializer, ProductSerializer
 from opportunity.views.setting import READ_ROLES, WRITE_ROLES
+from users.serializers.user import is_workspace_manage
+
+
+def _can_view_product_support(request, workspace_id: str) -> bool:
+    """Support contacts are restricted to workspace managers at the API boundary."""
+    user_id = getattr(getattr(request, 'user', None), 'id', None)
+    return bool(user_id and is_workspace_manage(str(user_id), workspace_id))
 
 
 class ProductView(APIView):
@@ -33,7 +40,10 @@ class ProductView(APIView):
     )
     @has_permissions(*READ_ROLES)
     def get(self, request: Request, workspace_id: str):
-        return result.success(ProductSerializer(data={'workspace_id': workspace_id}).list())
+        return result.success(ProductSerializer(data={'workspace_id': workspace_id}).list(
+            filters=request.query_params,
+            include_support=_can_view_product_support(request, workspace_id),
+        ))
 
     @extend_schema(
         methods=['POST'],
@@ -47,7 +57,10 @@ class ProductView(APIView):
     )
     @has_permissions(*WRITE_ROLES)
     def post(self, request: Request, workspace_id: str):
-        return result.success(ProductSerializer(data={'workspace_id': workspace_id}).insert(request.data))
+        return result.success(ProductSerializer(data={'workspace_id': workspace_id}).insert(
+            request.data,
+            include_support=_can_view_product_support(request, workspace_id),
+        ))
 
     class Operate(APIView):
         authentication_classes = [TokenAuth]
@@ -64,7 +77,9 @@ class ProductView(APIView):
         @has_permissions(*READ_ROLES)
         def get(self, request: Request, workspace_id: str, product_id: str):
             return result.success(ProductOperateSerializer(
-                data={'workspace_id': workspace_id, 'product_id': product_id}).one())
+                data={'workspace_id': workspace_id, 'product_id': product_id}).one(
+                    include_support=_can_view_product_support(request, workspace_id),
+                ))
 
         @extend_schema(
             methods=['PUT'],
@@ -79,7 +94,10 @@ class ProductView(APIView):
         @has_permissions(*WRITE_ROLES)
         def put(self, request: Request, workspace_id: str, product_id: str):
             return result.success(ProductOperateSerializer(
-                data={'workspace_id': workspace_id, 'product_id': product_id}).update(request.data))
+                data={'workspace_id': workspace_id, 'product_id': product_id}).update(
+                    request.data,
+                    include_support=_can_view_product_support(request, workspace_id),
+                ))
 
         @extend_schema(
             methods=['DELETE'],

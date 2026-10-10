@@ -1,0 +1,1 @@
+{"case_id":"VC205-SMOKE-YIGUAN","question":"医疗影像云需要统一监控主机、交换机和中间件，支持自动告警，尽量零侵入并在两周内完成试点上线。","clarification_answer":"首期试点约100个资源对象，部署在客户现有内网环境；允许通过标准接口集成现有告警渠道，不允许在核心业务主机安装重型代理；两周内完成试点，具体容量和正式版本由技术团队二次确认。","expected_products":["YIGUAN"],"expected_cases":["CASE-YIGUAN-TIBET","CASE-YIGUAN-NATIONAL"],"must_requirements":["统一监控","自动告警","零侵入"]}

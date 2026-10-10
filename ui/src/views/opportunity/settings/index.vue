@@ -178,6 +178,11 @@
               </el-form-item>
             </el-col>
             <el-col :xs="24" :sm="12">
+              <el-form-item :label="$t('views.opportunity.productLine')">
+                <el-input v-model="productForm.product_line" class="field-control" />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12">
               <el-form-item :label="$t('views.opportunity.ownerDepartment')">
                 <el-select v-model="productForm.owner_department_id" clearable filterable class="field-control">
                   <el-option v-for="item in departments" :key="item.id" :label="item.name" :value="item.id" />
@@ -189,19 +194,57 @@
             <el-button type="primary" @click="saveProduct">{{ $t('views.opportunity.saveProduct') }}</el-button>
           </div>
         </el-form>
-        <el-table :data="products" size="small" class="mt-16">
+        <el-row :gutter="12" class="product-filters mt-16">
+          <el-col :xs="24" :sm="12" :md="6">
+            <el-input v-model="productFilters.name" clearable :placeholder="$t('views.opportunity.productNameFilter')" />
+          </el-col>
+          <el-col :xs="24" :sm="12" :md="6">
+            <el-input v-model="productFilters.alias" clearable :placeholder="$t('views.opportunity.productAliasFilter')" />
+          </el-col>
+          <el-col :xs="24" :sm="12" :md="4">
+            <el-select v-model="productFilters.product_line" clearable :placeholder="$t('views.opportunity.productLineFilter')">
+              <el-option v-for="line in productLineOptions" :key="line" :label="line" :value="line" />
+            </el-select>
+          </el-col>
+          <el-col :xs="24" :sm="12" :md="4">
+            <el-select v-model="productFilters.department" clearable :placeholder="$t('views.opportunity.departmentFilter')">
+              <el-option v-for="item in departments" :key="item.code" :label="item.name" :value="item.code" />
+            </el-select>
+          </el-col>
+          <el-col :xs="24" :sm="12" :md="4">
+            <el-select v-model="productFilters.knowledge_status" clearable :placeholder="$t('views.opportunity.knowledgeStatusFilter')">
+              <el-option :label="$t('views.opportunity.knowledgeReady')" value="READY" />
+              <el-option :label="$t('views.opportunity.knowledgePending')" value="PENDING" />
+            </el-select>
+          </el-col>
+        </el-row>
+        <el-table :data="filteredProducts" size="small" class="mt-16">
           <el-table-column prop="code" :label="$t('views.opportunity.code')" min-width="140" />
           <el-table-column prop="name" :label="$t('views.opportunity.name')" min-width="180" />
+          <el-table-column prop="product_line" :label="$t('views.opportunity.productLine')" min-width="140" />
           <el-table-column :label="$t('views.opportunity.ownerDepartment')" min-width="160">
             <template #default="{ row }">
               {{ row.department?.owner_department_name || $t('views.opportunity.departmentUnresolved') }}
+            </template>
+          </el-table-column>
+          <el-table-column :label="$t('views.opportunity.supportLead')" min-width="180">
+            <template #default="{ row }">
+              <span>{{ row.meta?.support?.manager || '—' }}</span>
+              <span v-if="row.meta?.support?.phone" class="support-phone"> · {{ row.meta.support.phone }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column :label="$t('views.opportunity.knowledgeStatus')" width="130">
+            <template #default="{ row }">
+              <el-tag :type="row.knowledge_ready ? 'success' : 'info'">
+                {{ row.knowledge_ready ? $t('views.opportunity.knowledgeReady') : $t('views.opportunity.knowledgePending') }}
+              </el-tag>
             </template>
           </el-table-column>
           <template #empty>{{ $t('views.opportunity.emptyProduct') }}</template>
         </el-table>
       </el-tab-pane>
 
-      <el-tab-pane :label="$t('views.opportunity.embedTab')" name="embed">
+      <el-tab-pane v-if="embedEnabled" :label="$t('views.opportunity.embedTab')" name="embed">
         <p class="tab-intro">{{ $t('views.opportunity.embedHint') }}</p>
         <el-form label-position="top" :model="embedForm" class="settings-form" @submit.prevent>
           <el-row :gutter="16">
@@ -310,8 +353,8 @@ import type {
 } from '@/api/type/opportunity'
 import HxOverview from '../components/HxOverview.vue'
 
-const TAB_NAMES = ['engine', 'department', 'product', 'embed'] as const
-type TabName = (typeof TAB_NAMES)[number]
+const TAB_NAMES = ['engine', 'department', 'product'] as const
+type TabName = (typeof TAB_NAMES)[number] | 'embed'
 
 const route = useRoute()
 const router = useRouter()
@@ -329,10 +372,13 @@ const setting = reactive<OpportunitySetting>({
   product_knowledge_id: '',
   case_knowledge_id: '',
 })
+const embedEnabled = ref(false)
+const embedFlagLoaded = ref(false)
 const departments = ref<DepartmentProfile[]>([])
 const products = ref<ProductProfile[]>([])
 const departmentForm = reactive({ code: '', name: '' })
-const productForm = reactive({ code: '', name: '', owner_department_id: '' })
+const productForm = reactive({ code: '', name: '', product_line: '', owner_department_id: '' })
+const productFilters = reactive({ name: '', alias: '', product_line: '', department: '', knowledge_status: '' })
 const aliasText = ref('')
 const embedClients = ref<OpportunityEmbedClient[]>([])
 const embedSaving = ref(false)
@@ -341,24 +387,33 @@ const embedForm = reactive({ name: '', token_ttl_seconds: 300 })
 const secretVisible = ref(false)
 const issuedCredential = reactive({ client_id: '', client_secret: '', embed_path: '' })
 
-const overviewMetrics = computed(() => [
-  { label: '分析引擎', value: setting.llm_model_id && setting.product_knowledge_id ? '已绑定' : '未绑定' },
-  { label: '部门主数据', value: departments.value.length, hint: '当前列表' },
-  { label: '产品主数据', value: products.value.length, hint: '当前列表' },
-  { label: '嵌入接入', value: embedClients.value.length, hint: '当前列表' },
-])
+const overviewMetrics = computed(() => {
+  const metrics = [
+    { label: '分析引擎', value: setting.llm_model_id && setting.product_knowledge_id ? '已绑定' : '未绑定' },
+    { label: '部门主数据', value: departments.value.length, hint: '当前列表' },
+    { label: '产品主数据', value: products.value.length, hint: '当前列表' },
+  ]
+  if (embedEnabled.value) {
+    metrics.push({ label: '嵌入接入', value: embedClients.value.length, hint: '当前列表' })
+  }
+  return metrics
+})
 const modelOptions = ref<Record<string, any[]>>({})
 const knowledgeList = ref<Array<{ id: string; name: string }>>([])
 
 const activeTab = computed({
   get: () => {
     const tab = String(route.query.tab || 'engine')
-    return (TAB_NAMES as readonly string[]).includes(tab) ? (tab as TabName) : 'engine'
+    return isAllowedTab(tab) ? (tab as TabName) : 'engine'
   },
   set: (tab: string) => {
-    router.replace({ query: { ...route.query, tab } })
+    router.replace({ query: { ...route.query, tab: isAllowedTab(tab) ? tab : 'engine' } })
   },
 })
+
+const isAllowedTab = (tab: string) =>
+  (TAB_NAMES as readonly string[]).includes(tab) ||
+  (tab === 'embed' && embedFlagLoaded.value && embedEnabled.value)
 
 const flattenedModels = computed(() => Object.values(modelOptions.value).flat())
 const hasAvailableModel = computed(() => flattenedModels.value.some((item) => item.status === 'SUCCESS'))
@@ -385,6 +440,21 @@ const boundCaseKnowledgeText = computed(() => {
   if (!id) return t('views.opportunity.bindStatusOptional')
   const name = knowledgeName(id)
   return name ? t('views.opportunity.bindStatusBound', { name }) : t('views.opportunity.bindStatusUnknown')
+})
+const productLineOptions = computed(() => Array.from(new Set(
+  products.value.map((item) => item.product_line).filter(Boolean),
+)).sort())
+const filteredProducts = computed(() => {
+  const name = productFilters.name.trim().toLocaleLowerCase()
+  const alias = productFilters.alias.trim().toLocaleLowerCase()
+  return products.value.filter((item) => {
+    if (name && !item.name.toLocaleLowerCase().includes(name)) return false
+    if (alias && !(item.aliases || []).some((value) => value.toLocaleLowerCase().includes(alias))) return false
+    if (productFilters.product_line && item.product_line !== productFilters.product_line) return false
+    if (productFilters.department && item.department?.owner_department_code !== productFilters.department) return false
+    if (productFilters.knowledge_status && item.knowledge_status !== productFilters.knowledge_status) return false
+    return true
+  })
 })
 
 const loadModels = () => {
@@ -427,14 +497,27 @@ const loadKnowledge = () => {
 
 const loadAll = () => {
   opportunityApi.getSetting().then((res) => {
-    Object.assign(setting, res.data || {})
+    const data = res.data || {}
+    const { embed_enabled: enabled, ...settingData } = data
+    embedEnabled.value = enabled === true
+    embedFlagLoaded.value = true
+    Object.assign(setting, settingData)
     setting.llm_model_id = setting.llm_model_id || ''
     setting.product_knowledge_id = setting.product_knowledge_id || ''
     setting.case_knowledge_id = setting.case_knowledge_id || ''
+    if (embedEnabled.value) {
+      return opportunityApi.listEmbedClients().then((embedRes) => {
+        embedClients.value = embedRes.data || []
+      })
+    }
+    embedClients.value = []
+  }).catch(() => {
+    embedEnabled.value = false
+    embedFlagLoaded.value = true
+    embedClients.value = []
   })
   opportunityApi.listDepartments().then((res) => (departments.value = res.data || []))
   opportunityApi.listProducts().then((res) => (products.value = res.data || []))
-  opportunityApi.listEmbedClients().then((res) => (embedClients.value = res.data || []))
   loadModels()
   loadKnowledge()
 }
@@ -448,7 +531,8 @@ const saveSetting = () => {
     ElMessage.warning(t('views.opportunity.selectKnowledgeFirst'))
     return
   }
-  opportunityApi.updateSetting({ ...setting }, saving).then(() => {
+  const { embed_enabled: _embedEnabled, ...settingData } = setting
+  opportunityApi.updateSetting({ ...settingData }, saving).then(() => {
     ElMessage.success(t('views.opportunity.engineSaved'))
     loadAll()
   })
@@ -478,6 +562,7 @@ const saveProduct = () => {
     .then(() => {
       productForm.code = ''
       productForm.name = ''
+      productForm.product_line = ''
       productForm.owner_department_id = ''
       aliasText.value = ''
       loadAll()
@@ -528,12 +613,14 @@ const disableClient = (client: OpportunityEmbedClient) => {
 }
 
 watch(
-  () => route.query.tab,
-  (tab) => {
-    if (tab && !(TAB_NAMES as readonly string[]).includes(String(tab))) {
+  [() => route.query.tab, embedEnabled, embedFlagLoaded],
+  ([tab]) => {
+    if (String(tab) === 'embed' && !embedFlagLoaded.value) return
+    if (tab && !isAllowedTab(String(tab))) {
       router.replace({ query: { ...route.query, tab: 'engine' } })
     }
   },
+  { immediate: true },
 )
 
 onMounted(loadAll)
@@ -570,6 +657,13 @@ onMounted(loadAll)
 .field-number {
   width: 100%;
   max-width: 220px;
+}
+.product-filters :deep(.el-input),
+.product-filters :deep(.el-select) {
+  width: 100%;
+}
+.support-phone {
+  color: var(--muted);
 }
 .form-actions {
   display: flex;

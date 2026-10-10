@@ -112,6 +112,11 @@ export const routes: Array<RouteRecordRaw> = [
     component: () => import('@/views/login/index.vue'),
   },
   {
+    path: '/sso/portal',
+    name: 'PortalSso',
+    component: () => import('@/views/login/PortalSso.vue'),
+  },
+  {
     path: '/forgot_password',
     name: 'ForgotPassword',
     component: () => import('@/views/login/ForgotPassword.vue'),

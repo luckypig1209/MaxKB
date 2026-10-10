@@ -12,6 +12,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from common.exception.app_exception import AppApiException
+from knowledge.models import Document
 from opportunity.models import (
     MappingRole,
     OpportunityAnalysis,
@@ -28,7 +29,7 @@ from opportunity.serializers.common import (
 )
 from opportunity.services.analysis import get_setting
 from opportunity.services.department import current_owner_queryset, is_mapping_effective, resolve_department
-from opportunity.services.knowledge_metadata import merge_bia_meta
+from opportunity.services.knowledge_metadata import get_bia_meta, is_document_retrievable, merge_bia_meta
 
 
 class ProductWriteSerializer(serializers.Serializer):
@@ -59,7 +60,101 @@ class DocumentBindingSerializer(serializers.Serializer):
     allow_download = serializers.BooleanField(required=False, default=False)
 
 
-def product_to_dict(product: ProductProfile):
+def _visible_meta(meta, include_support=False):
+    """Return product metadata with contact details removed for ordinary readers."""
+    if not isinstance(meta, dict):
+        return {}
+    if include_support:
+        return dict(meta)
+    # Do not let a phone/contact value leak if an older catalog put it at the
+    # root or nested below another extension key.  The support object is kept
+    # only for workspace managers.
+    sensitive_keys = {'support', 'phone', 'mobile', 'telephone', 'contact', 'contacts'}
+
+    def redact(value):
+        if isinstance(value, dict):
+            return {
+                key: redact(item)
+                for key, item in value.items()
+                if str(key).lower() not in sensitive_keys
+            }
+        if isinstance(value, list):
+            return [redact(item) for item in value]
+        return value
+
+    return redact(meta)
+
+
+def _ready_product_codes(workspace_id):
+    """Resolve product codes that have a published, active product document."""
+    setting = get_setting(workspace_id)
+    if not setting.product_knowledge_id:
+        return set()
+    now = timezone.now()
+    documents = QuerySet(Document).filter(
+        knowledge_id=setting.product_knowledge_id,
+        knowledge__workspace_id=workspace_id,
+    )
+    ready = set()
+    for document in documents:
+        if not is_document_retrievable(document, now):
+            continue
+        code = get_bia_meta(document).get('product_code')
+        if code:
+            ready.add(str(code))
+    return ready
+
+
+def _matches_product_filters(product, department, params, knowledge_ready):
+    if not params:
+        return True
+
+    def value(name, *aliases):
+        for key in (name, *aliases):
+            candidate = params.get(key)
+            if candidate not in (None, ''):
+                return str(candidate).strip()
+        return ''
+
+    search = value('q', 'search')
+    if search:
+        needle = search.casefold()
+        searchable = [product.code, product.name, *(product.aliases or [])]
+        if not any(needle in str(item).casefold() for item in searchable):
+            return False
+    name = value('name')
+    if name and name.casefold() not in product.name.casefold():
+        return False
+    alias = value('alias', 'aliases')
+    if alias and not any(alias.casefold() in str(item).casefold() for item in (product.aliases or [])):
+        return False
+    product_line = value('product_line', 'line')
+    if product_line and product_line.casefold() not in (product.product_line or '').casefold():
+        return False
+    department_filter = value('department', 'department_code', 'owner_department')
+    if department_filter:
+        department_values = {
+            str(department.get('code') or department.get('owner_department_code') or '').casefold(),
+            str(department.get('name') or department.get('owner_department_name') or '').casefold(),
+            str(department.get('id') or '').casefold(),
+        }
+        if department_filter.casefold() not in department_values:
+            return False
+    readiness = value('knowledge_status', 'readiness', 'knowledge_ready').casefold()
+    if readiness:
+        if readiness in {'ready', 'true', '1', '已就绪', '资料已就绪'}:
+            expected_ready = True
+        elif readiness in {'pending', 'false', '0', '待补', '资料未就绪'}:
+            expected_ready = False
+        else:
+            # An unknown readiness value must not silently become PENDING.
+            return False
+        if knowledge_ready != expected_ready:
+            return False
+    return True
+
+
+def product_to_dict(product: ProductProfile, include_support=False, knowledge_ready=False):
     department = resolve_department(product)
     return {
         'id': str(product.id),
@@ -70,7 +165,9 @@ def product_to_dict(product: ProductProfile):
         'product_line': product.product_line,
         'description': product.description,
         'status': product.status,
-        'meta': product.meta or {},
+        'meta': _visible_meta(product.meta or {}, include_support=include_support),
+        'knowledge_ready': bool(knowledge_ready),
+        'knowledge_status': 'READY' if knowledge_ready else 'PENDING',
         'department': department,
         'create_time': model_time(product.create_time),
         'update_time': model_time(product.update_time),
@@ -115,12 +212,23 @@ def _sync_owner_mapping(product: ProductProfile, owner_department_id, owner_user
 class ProductSerializer(serializers.Serializer):
     workspace_id = serializers.CharField(required=True)
 
-    def list(self):
+    def list(self, filters=None, include_support=False):
         self.is_valid(raise_exception=True)
         queryset = QuerySet(ProductProfile).filter(workspace_id=self.validated_data['workspace_id']).order_by('code')
-        return [product_to_dict(item) for item in queryset]
+        ready_codes = _ready_product_codes(self.validated_data['workspace_id'])
+        result = []
+        for item in queryset:
+            department = resolve_department(item)
+            ready = item.code in ready_codes
+            if _matches_product_filters(item, department, filters, ready):
+                result.append(product_to_dict(
+                    item,
+                    include_support=include_support,
+                    knowledge_ready=ready,
+                ))
+        return result
 
-    def insert(self, instance: dict):
+    def insert(self, instance: dict, include_support=False):
         self.is_valid(raise_exception=True)
         serializer = ProductWriteSerializer(data=instance)
         serializer.is_valid(raise_exception=True)
@@ -141,20 +249,21 @@ class ProductSerializer(serializers.Serializer):
             )
             product.save()
             _sync_owner_mapping(product, data.get('owner_department_id'), data.get('owner_user_id'))
-        return product_to_dict(product)
+        return product_to_dict(product, include_support=include_support, knowledge_ready=False)
 
 
 class ProductOperateSerializer(serializers.Serializer):
     workspace_id = serializers.CharField(required=True)
     product_id = serializers.UUIDField(required=True)
 
-    def one(self):
+    def one(self, include_support=False):
         self.is_valid(raise_exception=True)
         product = require_product(self.validated_data['workspace_id'], product_id=self.validated_data['product_id'],
                                   allow_inactive=True)
-        return product_to_dict(product)
+        ready = product.code in _ready_product_codes(self.validated_data['workspace_id'])
+        return product_to_dict(product, include_support=include_support, knowledge_ready=ready)
 
-    def update(self, instance: dict):
+    def update(self, instance: dict, include_support=False):
         self.is_valid(raise_exception=True)
         serializer = ProductWriteSerializer(data=instance)
         serializer.is_valid(raise_exception=True)
@@ -175,7 +284,8 @@ class ProductOperateSerializer(serializers.Serializer):
             product.meta = data.get('meta') if data.get('meta') is not None else product.meta
             product.save()
             _sync_owner_mapping(product, data.get('owner_department_id'), data.get('owner_user_id'))
-        return product_to_dict(product)
+        ready = product.code in _ready_product_codes(workspace_id)
+        return product_to_dict(product, include_support=include_support, knowledge_ready=ready)
 
     def delete(self):
         self.is_valid(raise_exception=True)

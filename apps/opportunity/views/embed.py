@@ -20,6 +20,7 @@ from opportunity.serializers.embed import (
 from opportunity.serializers.analysis import AnalysisOperateSerializer, AnalysisSerializer
 from opportunity.serializers.report import ReportSerializer
 from opportunity.services.report import render_report_html
+from opportunity.services.embed_security import ensure_opportunity_embed_enabled
 from opportunity.views.setting import WRITE_ROLES
 
 
@@ -58,7 +59,21 @@ def _client_context(request, workspace_id, client_id=None):
     return data
 
 
-class EmbedClientView(APIView):
+class OpportunityEmbedAPIView(APIView):
+    """Base view that gates all opportunity embed endpoints before auth.
+
+    The feature flag intentionally runs before DRF authentication and
+    permission checks.  A disabled integration therefore returns the same
+    not-found response for anonymous callers and authenticated callers,
+    without exposing client existence or any stored secrets.
+    """
+
+    def initial(self, request, *args, **kwargs):
+        ensure_opportunity_embed_enabled()
+        return super().initial(request, *args, **kwargs)
+
+
+class EmbedClientView(OpportunityEmbedAPIView):
     authentication_classes = [TokenAuth]
 
     @extend_schema(
@@ -78,7 +93,7 @@ class EmbedClientView(APIView):
     def post(self, request: Request, workspace_id: str):
         return result.success(EmbedClientSerializer(data=_client_context(request, workspace_id)).insert(request.data))
 
-    class Operate(APIView):
+    class Operate(OpportunityEmbedAPIView):
         authentication_classes = [TokenAuth]
 
         @has_permissions(*WRITE_ROLES)
@@ -93,7 +108,7 @@ class EmbedClientView(APIView):
                 data=_client_context(request, workspace_id, client_id),
             ).disable())
 
-    class RotateSecret(APIView):
+    class RotateSecret(OpportunityEmbedAPIView):
         authentication_classes = [TokenAuth]
 
         @has_permissions(*WRITE_ROLES)
@@ -102,7 +117,7 @@ class EmbedClientView(APIView):
                 data=_client_context(request, workspace_id, client_id),
             ).rotate_secret())
 
-    class RevokeSession(APIView):
+    class RevokeSession(OpportunityEmbedAPIView):
         authentication_classes = [TokenAuth]
 
         @has_permissions(*WRITE_ROLES)
@@ -113,7 +128,7 @@ class EmbedClientView(APIView):
             }).revoke())
 
 
-class EmbedTokenExchangeView(APIView):
+class EmbedTokenExchangeView(OpportunityEmbedAPIView):
     authentication_classes = [AnonymousAuthentication]
     throttle_classes = [EmbedTokenExchangeThrottle]
 
@@ -125,7 +140,7 @@ class EmbedTokenExchangeView(APIView):
         return result.success(EmbedTokenExchangeSerializer().exchange(request.data))
 
 
-class EmbedSessionView(APIView):
+class EmbedSessionView(OpportunityEmbedAPIView):
     authentication_classes = [OpportunityEmbedTokenAuth]
 
     def get(self, request: Request):
@@ -147,7 +162,7 @@ class EmbedSessionView(APIView):
         })
 
 
-class EmbedAnalysisView(APIView):
+class EmbedAnalysisView(OpportunityEmbedAPIView):
     """仅使用服务端令牌上下文，不接受浏览器传入的用户或工作空间。"""
     authentication_classes = [OpportunityEmbedTokenAuth]
 
@@ -163,7 +178,7 @@ class EmbedAnalysisView(APIView):
         _require_scope(request, 'analysis:create')
         return result.success(AnalysisSerializer(data=_analysis_context(request)).insert(request.data))
 
-    class Operate(APIView):
+    class Operate(OpportunityEmbedAPIView):
         authentication_classes = [OpportunityEmbedTokenAuth]
 
         def get(self, request: Request, analysis_id: str):
@@ -172,7 +187,7 @@ class EmbedAnalysisView(APIView):
                 data=_analysis_context(request, analysis_id),
             ).one())
 
-    class Clarification(APIView):
+    class Clarification(OpportunityEmbedAPIView):
         authentication_classes = [OpportunityEmbedTokenAuth]
 
         def post(self, request: Request, analysis_id: str):
@@ -181,7 +196,7 @@ class EmbedAnalysisView(APIView):
                 data=_analysis_context(request, analysis_id),
             ).clarify(request.data))
 
-    class Retry(APIView):
+    class Retry(OpportunityEmbedAPIView):
         authentication_classes = [OpportunityEmbedTokenAuth]
 
         def post(self, request: Request, analysis_id: str):
@@ -190,7 +205,7 @@ class EmbedAnalysisView(APIView):
                 data=_analysis_context(request, analysis_id),
             ).retry())
 
-    class Confirm(APIView):
+    class Confirm(OpportunityEmbedAPIView):
         authentication_classes = [OpportunityEmbedTokenAuth]
 
         def post(self, request: Request, analysis_id: str):
@@ -199,7 +214,7 @@ class EmbedAnalysisView(APIView):
                 data=_analysis_context(request, analysis_id),
             ).confirm(request.data))
 
-    class ExportReport(APIView):
+    class ExportReport(OpportunityEmbedAPIView):
         authentication_classes = [OpportunityEmbedTokenAuth]
 
         def get(self, request: Request, analysis_id: str):

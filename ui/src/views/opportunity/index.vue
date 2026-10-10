@@ -56,9 +56,11 @@
             :status="analysis.status"
             :error="analysis.error_message"
             :progress="analysis.result_snapshot?.progress"
+            :cancelling="cancelling"
+            @cancel="onCancelInFlight"
           />
           <CandidateCards
-            v-if="candidates.length"
+            v-if="showCandidates"
             class="mt-16"
             :candidates="candidates"
             :selected-code="selectedCode"
@@ -86,9 +88,10 @@
             class="mt-16"
             :profile="analysis.requirement_profile"
             :version="analysis.requirement_profile_version"
+            :pending-recommendation="analysis.status === 'ANALYZING'"
             @show-history="requirementHistoryVisible = true"
           />
-          <el-collapse v-if="candidates.length" class="mt-16">
+          <el-collapse v-if="showCandidates" class="mt-16">
             <el-collapse-item :title="$t('views.opportunity.matchDetail')" name="matrix">
               <MatchMatrix
                 :requirements="analysis.requirement_profile?.requirements || []"
@@ -98,7 +101,7 @@
             </el-collapse-item>
           </el-collapse>
           <CaseReferences
-            v-if="candidates.length || analysis.result_snapshot?.case_enhancement"
+            v-if="showCandidates || (analysis.result_snapshot?.case_enhancement && analysis.status !== 'ANALYZING')"
             class="mt-16"
             :candidates="candidates"
             :enhancement="analysis.result_snapshot?.case_enhancement"
@@ -129,6 +132,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import opportunityApi from '@/api/opportunity'
 import type { CandidateResult, EvidenceItem, OpportunityAnalysis } from '@/api/type/opportunity'
+import { shouldRefreshHistory, useAnalysisPolling } from './composables/useAnalysisPolling'
 import RequirementInput from './components/RequirementInput.vue'
 import AnalysisProgress from './components/AnalysisProgress.vue'
 import RequirementProfilePanel from './components/RequirementProfile.vue'
@@ -154,13 +158,42 @@ const selectedCode = ref('')
 const evidenceVisible = ref(false)
 const activeEvidence = ref<EvidenceItem[]>([])
 const requirementHistoryVisible = ref(false)
-let timer: number | undefined
 const submitting = ref(false)
+const cancelling = ref(false)
+
+const applyAnalysis = (data: OpportunityAnalysis) => {
+  analysis.value = data
+  const scored = (data.result_snapshot?.candidates || []).filter((item: CandidateResult) => Number(item.score) > 0)
+  if (!selectedCode.value || !scored.some((item) => item.product_code === selectedCode.value)) {
+    selectedCode.value = scored[0]?.product_code || ''
+  }
+}
+
+const poller = useAnalysisPolling<OpportunityAnalysis>({
+  fetch: async (id) => {
+    const res = await opportunityApi.getAnalysis(id)
+    return res.data
+  },
+  onUpdate: (data) => {
+    const previous = analysis.value?.status
+    applyAnalysis(data)
+    if (shouldRefreshHistory(previous, data.status)) {
+      history.value = history.value.map((item) => (
+        item.id === data.id ? { ...item, status: data.status } : item
+      ))
+      loadHistory()
+    }
+  },
+})
 
 const candidates = computed(() =>
   (analysis.value?.result_snapshot?.candidates || [])
     .filter((item) => Number(item.score) > 0)
     .sort((a, b) => (a.rank || 99) - (b.rank || 99)),
+)
+
+const showCandidates = computed(
+  () => Boolean(candidates.value.length && analysis.value?.status !== 'ANALYZING'),
 )
 
 const overviewMetrics = computed(() => [
@@ -197,33 +230,14 @@ const loadHistory = () => {
   })
 }
 
-const stopPoll = () => {
-  if (timer) {
-    window.clearInterval(timer)
-    timer = undefined
-  }
-}
-
 const loadAnalysis = (id: string, silent = false) => {
   if (!silent) loading.value = true
-  return opportunityApi
-    .getAnalysis(id, silent ? undefined : loading)
-    .then((res) => {
-      analysis.value = res.data
-      const scored = (res.data?.result_snapshot?.candidates || []).filter((item: CandidateResult) => Number(item.score) > 0)
-      if (!selectedCode.value || !scored.some((item) => item.product_code === selectedCode.value)) {
-        selectedCode.value = scored[0]?.product_code || ''
-      }
-      if (res.data.status === 'ANALYZING') startPoll(id)
-      else stopPoll()
+  return poller
+    .load(id)
+    .catch(() => undefined)
+    .finally(() => {
+      if (!silent) loading.value = false
     })
-}
-
-const startPoll = (id: string) => {
-  stopPoll()
-  timer = window.setInterval(() => {
-    loadAnalysis(id, true)
-  }, 1500)
 }
 
 const openAnalysis = (id: string) => {
@@ -261,8 +275,8 @@ const onCreate = async () => {
 const onClarify = (answer: string) => {
   if (!analysis.value) return
   opportunityApi.submitClarification(analysis.value.id, answer, creating).then((res) => {
-    analysis.value = res.data
-    startPoll(res.data.id)
+    applyAnalysis(res.data)
+    if (poller.shouldKeepPolling(res.data.status)) poller.start(res.data.id)
   })
 }
 
@@ -286,6 +300,31 @@ const onDecision = (
   }).catch(() => undefined)
 }
 
+const onCancelInFlight = () => {
+  if (!analysis.value || cancelling.value) return
+  cancelling.value = true
+  ElMessageBox.confirm(
+    t('views.opportunity.cancelInFlightHint'),
+    t('views.opportunity.cancelAnalysis'),
+    {
+      confirmButtonText: t('views.opportunity.confirmCancel'),
+      cancelButtonText: t('views.opportunity.keepRunning'),
+      type: 'warning',
+    },
+  ).then(() => {
+    if (!analysis.value) return
+    return opportunityApi.submitDecision(analysis.value.id, { action: 'CANCEL', reason: '' }).then((res) => {
+      applyAnalysis(res.data)
+      poller.stop()
+      loadHistory()
+      ElMessage.success(t('views.opportunity.cancelled'))
+    })
+  }).catch(() => undefined)
+    .finally(() => {
+      cancelling.value = false
+    })
+}
+
 const onExport = () => {
   if (!analysis.value) return
   opportunityApi.exportReport(analysis.value.id, analysis.value.report?.report_no, loading)
@@ -294,8 +333,8 @@ const onExport = () => {
 const onRetry = () => {
   if (!analysis.value) return
   opportunityApi.retryAnalysis(analysis.value.id, creating).then((res) => {
-    analysis.value = res.data
-    startPoll(res.data.id)
+    applyAnalysis(res.data)
+    if (poller.shouldKeepPolling(res.data.status)) poller.start(res.data.id)
   })
 }
 
@@ -316,7 +355,7 @@ watch(
 )
 
 loadHistory()
-onUnmounted(stopPoll)
+onUnmounted(() => poller.stop())
 </script>
 <style scoped>
 .history-list {

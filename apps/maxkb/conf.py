@@ -47,7 +47,21 @@ class Config(dict):
         "REDIS_MAX_CONNECTIONS": 100,
         # 外置语言包路径
         "EXTERNAL_LOCALE_PATH": "/opt/maxkb/local/locales",
-        "FILE_AUTH": "1"
+        "FILE_AUTH": "1",
+        # Opportunity embed access is opt-in and keeps existing client data
+        # available for a later enablement.
+        "OPPORTUNITY_EMBED_ENABLED": False,
+        # Portal SSO (disabled by default; secrets are intentionally empty).
+        "PORTAL_SSO_ENABLED": False,
+        "PORTAL_SSO_CLIENT_ID": "",
+        "PORTAL_SSO_CLIENT_SECRET": "",
+        "PORTAL_SSO_PREVIOUS_CLIENT_SECRET": "",
+        "PORTAL_SSO_ALLOWED_CLOCK_SKEW_SECONDS": 60,
+        "PORTAL_SSO_TICKET_TTL_SECONDS": 60,
+        "PORTAL_SSO_AUTO_PROVISION": False,
+        "PORTAL_SSO_DEFAULT_WORKSPACE": "default",
+        "PORTAL_SSO_PORTAL_LOGIN_URL": "",
+        "PORTAL_SSO_ALLOWED_TARGETS": "/home,/opportunity,/opportunity/records",
     }
 
     def get_debug(self) -> bool:
@@ -144,6 +158,17 @@ class Config(dict):
 
     def get_session_timeout(self):
         return int(self.get("SESSION_TIMEOUT", 28800))
+
+    def get_portal_sso_config(self):
+        """Return the typed portal SSO configuration.
+
+        The import is intentionally lazy so the base config module remains
+        usable by local-model processes that do not install the users app.
+        """
+
+        from users.services.portal_sso import PortalSSOConfig
+
+        return PortalSSOConfig.from_mapping(self).validate_enabled()
 
     def __init__(self, *args):
         super().__init__(*args)

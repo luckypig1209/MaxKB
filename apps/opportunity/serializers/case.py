@@ -6,7 +6,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from common.exception.app_exception import AppApiException
-from knowledge.models import Document
+from knowledge.models import Document, State, Status, TaskType
 from opportunity.models import (
     CaseAccessScope,
     CaseDocumentMapping,
@@ -22,12 +22,12 @@ from opportunity.serializers.common import (
     model_time,
     require_case,
     require_department,
-    require_document,
     require_knowledge,
 )
 from opportunity.services.analysis import get_setting
 from opportunity.services.case_access import is_case_effective, is_case_retrievable, sanitize_case_value
 from opportunity.services.knowledge_metadata import merge_case_bia_meta
+from common.utils.shared_resource_auth import filter_authorized_ids
 
 
 CASE_ACTION_TRANSITIONS = {
@@ -41,6 +41,45 @@ CASE_ACTION_TRANSITIONS = {
 CASE_BINDABLE_STATUSES = {
     CaseStatus.DRAFT, CaseStatus.REJECTED, CaseStatus.APPROVED, CaseStatus.OFFLINE,
 }
+
+# A document is considered parsed when its source synchronisation and optional
+# tokenisation tasks are no longer waiting/running/failed.  ``n`` (ignored) is
+# the normal state for tasks that are not enabled for a document, so it is
+# intentionally accepted here.  Embedding success is the readiness signal for
+# a source document; publication and recall keep their existing rules.
+_CASE_DOCUMENT_BLOCKING_STATES = {
+    State.PENDING,
+    State.STARTED,
+    State.FAILURE,
+    State.REVOKE,
+    State.REVOKED,
+}
+
+
+def is_case_document_parsed(document) -> bool:
+    """Return whether a document is usable as a case source.
+
+    The helper accepts a lightweight object as well as a ``Document`` model so
+    that the status contract can be tested without a database.  No document
+    content or status metadata is exposed to callers.
+    """
+    if not getattr(document, 'is_active', False):
+        return False
+    try:
+        if int(getattr(document, 'char_length', 0) or 0) <= 0:
+            return False
+    except (TypeError, ValueError):
+        return False
+    status = Status(getattr(document, 'status', '') or '')
+    # A parsed document has completed vector preparation in MaxKB's status
+    # contract (available case sources are observed as ``nnn2``).  ``nnnn``
+    # is the untouched document default and must not be selectable.
+    if status[TaskType.EMBEDDING] != State.SUCCESS:
+        return False
+    return all(status[task_type] not in _CASE_DOCUMENT_BLOCKING_STATES for task_type in (
+        TaskType.SYNC,
+        TaskType.TOKENIZE,
+    ))
 
 
 class CaseWriteSerializer(serializers.Serializer):
@@ -74,6 +113,12 @@ class CaseWriteSerializer(serializers.Serializer):
     primary_product_code = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=64)
     effective_from = serializers.DateTimeField(required=False, allow_null=True)
     effective_to = serializers.DateTimeField(required=False, allow_null=True)
+    # New registration binds an existing parsed case document in the same
+    # transaction.  ``allow_null`` keeps the legacy edit endpoint backwards
+    # compatible when a document is not being replaced.
+    document_id = serializers.UUIDField(required=False, allow_null=True)
+    document_version = serializers.CharField(required=False, allow_blank=True, default='1.0', max_length=64)
+    allow_download = serializers.BooleanField(required=False, default=False)
     meta = serializers.JSONField(required=False)
 
     def validate(self, attrs):
@@ -215,10 +260,164 @@ def _sync_case_documents(case: CaseProfile):
         document.save(update_fields=['meta', 'update_time'])
 
 
+def _case_document_version(document):
+    """Read only the version field needed by the management picker."""
+    return str(((document.meta or {}).get('bia') or {}).get('document_version') or '1.0')
+
+
+def _validate_case_document(workspace_id, document_id, case=None, user_id=None, for_update=False):
+    """Validate a case document while keeping the check inside the caller's transaction.
+
+    ``for_update`` is used by every mutating path.  The row lock and the
+    occupied re-check are deliberately in one atomic block so two managers
+    cannot bind the same source document to different cases concurrently.
+    """
+    setting = get_setting(workspace_id)
+    if not setting.case_knowledge_id:
+        raise AppApiException(500, '请先配置案例知识库')
+    knowledge = require_knowledge(workspace_id, setting.case_knowledge_id)
+    knowledge_id = str(knowledge.id)
+    if user_id is not None:
+        authorized = filter_authorized_ids('knowledge', [knowledge_id], workspace_id, user_id=user_id)
+        if knowledge_id not in {str(item) for item in authorized}:
+            raise AppApiException(403, '无权访问当前案例知识库')
+
+    documents = QuerySet(Document).select_related('knowledge')
+    if for_update:
+        documents = documents.select_for_update()
+    document = documents.filter(id=document_id, is_active=True).first()
+    if document is None or str(document.knowledge.workspace_id) != str(workspace_id):
+        raise AppApiException(500, '文档不存在或不属于当前工作空间')
+    if str(document.knowledge_id) != knowledge_id:
+        raise AppApiException(500, '文档必须属于当前案例知识库')
+    if not is_case_document_parsed(document):
+        raise AppApiException(500, '文档尚未解析完成，不能登记案例')
+
+    occupied = QuerySet(CaseDocumentMapping).filter(
+        workspace_id=workspace_id,
+        document_id=document.id,
+        is_active=True,
+    )
+    if case is not None:
+        occupied = occupied.exclude(case=case)
+    if occupied.exists():
+        raise AppApiException(500, '该文档已绑定其他案例')
+    return document
+
+
+def _case_document_candidate(document):
+    """Return safe metadata for the registration document picker."""
+    return {
+        'id': str(document.id),
+        'name': document.name,
+        'knowledge_id': str(document.knowledge_id),
+        'status': document.status,
+        'parsed': is_case_document_parsed(document),
+        'is_bound': False,
+        'document_version': _case_document_version(document),
+        'update_time': model_time(document.update_time),
+    }
+
+
+def list_available_case_documents(workspace_id, user_id=None, case_id=None):
+    """List parsed, active and unoccupied documents in the configured KB."""
+    setting = get_setting(workspace_id)
+    if not setting.case_knowledge_id:
+        return []
+    knowledge = require_knowledge(workspace_id, setting.case_knowledge_id)
+    knowledge_id = str(knowledge.id)
+    authorized = filter_authorized_ids('knowledge', [knowledge_id], workspace_id, user_id=user_id)
+    if knowledge_id not in {str(item) for item in authorized}:
+        return []
+
+    owned_ids = set()
+    if case_id:
+        owned_ids = {
+            str(item) for item in QuerySet(CaseDocumentMapping).filter(
+                workspace_id=workspace_id,
+                case_id=case_id,
+                is_active=True,
+            ).values_list('document_id', flat=True)
+        }
+    bound_query = QuerySet(CaseDocumentMapping).filter(
+        workspace_id=workspace_id,
+        knowledge_id=knowledge.id,
+        is_active=True,
+    )
+    bound_ids = {str(item) for item in bound_query.values_list('document_id', flat=True)}
+    queryset = QuerySet(Document).filter(
+        knowledge_id=knowledge.id,
+        is_active=True,
+    ).order_by('name', 'id')
+    result = []
+    for document in queryset:
+        document_id = str(document.id)
+        if document_id in bound_ids and document_id not in owned_ids:
+            # A new registration cannot use another case's source.  An edit
+            # may keep its own existing source and will see it as bound.
+            continue
+        if not is_case_document_parsed(document):
+            continue
+        item = _case_document_candidate(document)
+        item['is_bound'] = document_id in bound_ids
+        result.append(item)
+    return result
+
+
+def _bind_case_document(case, document, data, workspace_id):
+    """Write the BIA metadata and active mapping for a validated document."""
+    product_codes = [item.product.code for item in _active_product_mappings(case)]
+    if not product_codes:
+        raise AppApiException(500, '案例必须先关联至少一个有效产品')
+    reset_review = case.status in (CaseStatus.APPROVED, CaseStatus.OFFLINE)
+    if reset_review:
+        case.status = CaseStatus.DRAFT
+        case.desensitization_status = DesensitizationStatus.PENDING
+        case.reviewer_user_id = None
+        case.reviewed_at = None
+        case.review_comment = ''
+        case.save()
+        _sync_case_documents(case)
+
+    bia = {
+        'schema_version': '1.0',
+        'case_code': case.code,
+        'case_name': case.name,
+        'product_codes': product_codes,
+        'industry': case.industry,
+        'scenario': case.scenario,
+        'document_type': 'case_profile',
+        'document_version': data.get('document_version') or '1.0',
+        'publish_status': 'draft',
+        'desensitization_status': case.desensitization_status,
+        'sensitivity_level': case.sensitivity_level,
+        'access_scope': case.access_scope,
+        'effective_from': model_time(case.effective_from),
+        'effective_to': model_time(case.effective_to),
+        'allow_download': bool(data.get('allow_download', False)),
+    }
+    document.meta = merge_case_bia_meta(document.meta or {}, bia)
+    document.save(update_fields=['meta', 'update_time'])
+    mapping, _ = CaseDocumentMapping.objects.update_or_create(
+        workspace_id=workspace_id,
+        case=case,
+        document_id=document.id,
+        defaults={
+            'knowledge_id': document.knowledge_id,
+            'document_version': bia['document_version'],
+            'is_active': True,
+        },
+    )
+    return mapping
+
+
 class CaseSerializer(serializers.Serializer):
     workspace_id = serializers.CharField(required=True)
     user_id = serializers.CharField(required=False, allow_null=True)
     is_manager = serializers.BooleanField(required=False, default=False)
+    # API registrations opt in explicitly; bootstrap and legacy internal
+    # callers can still create a draft and bind a document in a later step.
+    require_document = serializers.BooleanField(required=False, default=False)
 
     def list(self, filters=None):
         self.is_valid(raise_exception=True)
@@ -246,6 +445,9 @@ class CaseSerializer(serializers.Serializer):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         workspace_id = self.validated_data['workspace_id']
+        document_id = data.get('document_id')
+        if self.validated_data.get('require_document') and not document_id:
+            raise AppApiException(500, '登记案例必须选择已解析的案例文档')
         if QuerySet(CaseProfile).filter(workspace_id=workspace_id, code=data['code']).exists():
             raise AppApiException(500, '案例编码已存在')
         owner_department = require_department(
@@ -276,6 +478,17 @@ class CaseSerializer(serializers.Serializer):
                 meta=data.get('meta') or {},
             )
             _sync_product_mappings(case, data['product_codes'], data.get('primary_product_code'))
+            if document_id:
+                # Lock and re-check occupancy after the case/product rows are
+                # created; any failure rolls the complete registration back.
+                document = _validate_case_document(
+                    workspace_id,
+                    document_id,
+                    case=case,
+                    user_id=self.validated_data.get('user_id'),
+                    for_update=True,
+                )
+                _bind_case_document(case, document, data, workspace_id)
         return _case_to_dict(case)
 
 
@@ -328,6 +541,15 @@ class CaseOperateSerializer(serializers.Serializer):
                 case.review_comment = ''
             case.save()
             _sync_product_mappings(case, data['product_codes'], data.get('primary_product_code'))
+            if data.get('document_id'):
+                document = _validate_case_document(
+                    workspace_id,
+                    data['document_id'],
+                    case=case,
+                    user_id=self.validated_data.get('user_id'),
+                    for_update=True,
+                )
+                _bind_case_document(case, document, data, workspace_id)
         return _case_to_dict(case)
 
     def action(self, instance: dict):
@@ -383,64 +605,14 @@ class CaseDocumentBindingSerializer(serializers.Serializer):
         case = require_case(workspace_id, case_id=self.validated_data['case_id'])
         if case.status not in CASE_BINDABLE_STATUSES:
             raise AppApiException(500, '当前状态不允许绑定资料；已发布案例请先下线')
-        document = require_document(workspace_id, self.validated_data['document_id'])
-        setting = get_setting(workspace_id)
-        if not setting.case_knowledge_id:
-            raise AppApiException(500, '请先配置案例知识库')
-        require_knowledge(workspace_id, setting.case_knowledge_id)
-        if str(document.knowledge_id) != str(setting.case_knowledge_id):
-            raise AppApiException(500, '文档必须属于当前案例知识库')
-        occupied = QuerySet(CaseDocumentMapping).filter(
-            workspace_id=workspace_id,
-            document_id=document.id,
-            is_active=True,
-        ).exclude(case=case)
-        if occupied.exists():
-            raise AppApiException(500, '该文档已绑定其他案例')
-        product_codes = [item.product.code for item in _active_product_mappings(case)]
-        if not product_codes:
-            raise AppApiException(500, '案例必须先关联至少一个有效产品')
-        reset_review = case.status in (CaseStatus.APPROVED, CaseStatus.OFFLINE)
-        if reset_review:
-            case.status = CaseStatus.DRAFT
-            case.desensitization_status = DesensitizationStatus.PENDING
-            case.reviewer_user_id = None
-            case.reviewed_at = None
-            case.review_comment = ''
-        publish_status = 'draft'
-        bia = {
-            'schema_version': '1.0',
-            'case_code': case.code,
-            'case_name': case.name,
-            'product_codes': product_codes,
-            'industry': case.industry,
-            'scenario': case.scenario,
-            'document_type': 'case_profile',
-            'document_version': data.get('document_version') or '1.0',
-            'publish_status': publish_status,
-            'desensitization_status': case.desensitization_status,
-            'sensitivity_level': case.sensitivity_level,
-            'access_scope': case.access_scope,
-            'effective_from': model_time(case.effective_from),
-            'effective_to': model_time(case.effective_to),
-            'allow_download': bool(data.get('allow_download', False)),
-        }
         with transaction.atomic():
-            if reset_review:
-                case.save()
-                _sync_case_documents(case)
-            document.meta = merge_case_bia_meta(document.meta or {}, bia)
-            document.save(update_fields=['meta', 'update_time'])
-            mapping, _ = CaseDocumentMapping.objects.update_or_create(
-                workspace_id=workspace_id,
+            document = _validate_case_document(
+                workspace_id,
+                self.validated_data['document_id'],
                 case=case,
-                document_id=document.id,
-                defaults={
-                    'knowledge_id': document.knowledge_id,
-                    'document_version': bia['document_version'],
-                    'is_active': True,
-                },
+                for_update=True,
             )
+            mapping = _bind_case_document(case, document, data, workspace_id)
         return {
             'mapping_id': str(mapping.id),
             'case_id': str(case.id),

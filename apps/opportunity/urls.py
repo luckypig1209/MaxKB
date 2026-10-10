@@ -43,6 +43,8 @@ urlpatterns = [
          views.ProductView.Binding.as_view(), name='opportunity_product_binding'),
     path('workspace/<str:workspace_id>/opportunity/cases', views.CaseView.as_view(),
          name='opportunity_cases'),
+    path('workspace/<str:workspace_id>/opportunity/cases/available-documents',
+         views.CaseAvailableDocumentView.as_view(), name='opportunity_case_available_documents'),
     path('workspace/<str:workspace_id>/opportunity/cases/<str:case_id>', views.CaseView.Operate.as_view(),
          name='opportunity_case_operate'),
     path('workspace/<str:workspace_id>/opportunity/cases/<str:case_id>/action', views.CaseView.Action.as_view(),

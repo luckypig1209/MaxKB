@@ -13,3 +13,6 @@ class ConfigDebugTests(TestCase):
         for value in ("true", "1", "yes", "on", True, 1):
             with self.subTest(value=value):
                 self.assertTrue(Config({"DEBUG": value}).get_debug())
+
+    def test_opportunity_embed_is_disabled_by_default(self):
+        self.assertFalse(Config.defaults["OPPORTUNITY_EMBED_ENABLED"])
