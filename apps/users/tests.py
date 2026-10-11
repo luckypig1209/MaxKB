@@ -22,8 +22,10 @@ from users.services.portal_sso import (
     PortalSSOServiceError,
     PortalSSOValidationError,
     canonical_json,
+    create_legacy_portal_ticket,
     create_portal_ticket,
     exchange_portal_ticket,
+    legacy_portal_signature,
     sign_request,
     validate_portal_payload,
     validate_timestamp,
@@ -317,6 +319,53 @@ class PortalSSOStatefulTests(TestCase):
                 rate_limit_subject="expired-ticket",
             )
         self.assertEqual(expired.exception.code, PortalSSOErrorCode.TICKET_INVALID)
+
+    def test_legacy_portal_body_uses_hmac_sha1_and_discards_password(self):
+        self.assertEqual(
+            legacy_portal_signature(self.config.client_secret, self.config.client_id, "1710000000000"),
+            "x0MMhIPPfHSIVffj1YeT9aenuT4=",
+        )
+        timestamp = int(time.time() * 1000)
+        signature = legacy_portal_signature(self.config.client_secret, self.config.client_id, str(timestamp))
+        recording_cache = RecordingCache()
+        body = {
+            "mobile": "13800000000",
+            "username": "portal-user",
+            "password": "not-a-credential",
+            "signature": signature,
+            "timestamp": timestamp,
+        }
+        ticket_data = create_legacy_portal_ticket(
+            body,
+            config=self.config,
+            cache_backend=recording_cache,
+            rate_limit_subject="legacy-client",
+        )
+        self.assertIn("ticket", ticket_data)
+        stored = str(recording_cache.values)
+        self.assertNotIn("not-a-credential", stored)
+        self.assertNotIn("13800000000", stored)
+        self.assertIn("portal-user", stored)
+
+        changed_user = {**body, "username": "other-user"}
+        with self.assertRaises(PortalSSOServiceError) as replay:
+            create_legacy_portal_ticket(
+                changed_user,
+                config=self.config,
+                cache_backend=recording_cache,
+                rate_limit_subject="legacy-client-2",
+            )
+        self.assertEqual(replay.exception.code, PortalSSOErrorCode.NONCE_REPLAY)
+
+        bad = {**body, "signature": "not-a-valid-signature", "timestamp": timestamp + 1}
+        with self.assertRaises(PortalSSOServiceError) as invalid:
+            create_legacy_portal_ticket(
+                bad,
+                config=self.config,
+                cache_backend=recording_cache,
+                rate_limit_subject="legacy-client-3",
+            )
+        self.assertEqual(invalid.exception.code, PortalSSOErrorCode.INVALID_SIGNATURE)
 
     def test_nonce_replay_and_signature_timestamp_failures(self):
         self._issue()

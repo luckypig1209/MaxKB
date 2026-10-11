@@ -7,8 +7,10 @@ from rest_framework.request import Request
 from rest_framework.views import APIView
 from users.serializers.portal_sso import PortalTicketExchangeSerializer, PortalTicketRequestSerializer
 from users.services.portal_sso import (
+    LEGACY_PORTAL_FIELDS,
     PortalSSOServiceError,
     PortalSSOValidationError,
+    create_legacy_portal_ticket,
     create_portal_ticket,
     exchange_portal_ticket,
 )
@@ -69,11 +71,36 @@ def _set_file_auth_cookie(response, request: Request, file_token: str):
     return response
 
 
+def _is_legacy_portal_body(data) -> bool:
+    if not hasattr(data, "keys"):
+        return False
+    try:
+        fields = set(data)
+    except TypeError:
+        return False
+    return fields <= LEGACY_PORTAL_FIELDS and {"username", "signature", "timestamp"} <= fields
+
+
 class PortalTicketView(APIView):
-    """Exchange a portal-signed identity assertion for a short-lived ticket."""
+    """Exchange a portal-signed identity assertion for a short-lived ticket.
+
+    The unmodified portal posts its existing HMAC-SHA1 body.  Callers that
+    send the newer signed headers continue to use that protocol.
+    """
 
     def post(self, request: Request):
         config = _config()
+        if _is_legacy_portal_body(request.data):
+            try:
+                ticket_data = create_legacy_portal_ticket(
+                    request.data,
+                    config=config,
+                    request_id=_request_id(request),
+                    rate_limit_subject=_rate_limit_subject(request),
+                )
+            except PortalSSOServiceError as exc:
+                raise _service_exception(exc) from exc
+            return result.success(ticket_data)
         serializer = PortalTicketRequestSerializer(data=request.data, context={"config": config})
         serializer.is_valid(raise_exception=True)
         client_id = request.META.get("HTTP_X_BIA_CLIENT_ID", "")

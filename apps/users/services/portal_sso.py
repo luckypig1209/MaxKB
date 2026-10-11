@@ -616,6 +616,97 @@ def _identity_payload_for_ticket(payload: Mapping[str, Any]) -> dict[str, Any]:
     return {field: payload[field] for field in PORTAL_SSO_FIELDS if field in payload}
 
 
+# The deployed portal posts this closed body and signs only client id plus
+# timestamp with HMAC-SHA1.  BIA adapts to that request instead of changing
+# the portal.  The password field is ignored and never logged.
+LEGACY_PORTAL_FIELDS = frozenset({"mobile", "username", "password", "signature", "timestamp"})
+LEGACY_PORTAL_MAX_SKEW_SECONDS = 60
+
+
+def legacy_portal_signature(client_secret: str, client_id: str, timestamp: str) -> str:
+    """Match ``SignatureUtils.sign(secret, clientId, timestamp, null, null)``."""
+
+    message = f"application:{client_id}\ntimestamp:{timestamp}\n".encode("utf-8")
+    digest = hmac.new(client_secret.encode("utf-8"), message, hashlib.sha1).digest()
+    return base64.b64encode(digest).decode("ascii")
+
+
+def _legacy_timestamp_text(value: Any) -> str:
+    if isinstance(value, bool) or isinstance(value, float) or not isinstance(value, (str, int)):
+        raise PortalSSOValidationError("invalid portal SSO timestamp")
+    text = str(value)
+    if not text.isdigit():
+        raise PortalSSOValidationError("invalid portal SSO timestamp")
+    return text
+
+
+def _verify_legacy_signature(config: PortalSSOConfig, timestamp: str, signature: str) -> bool:
+    if not isinstance(signature, str) or not signature:
+        return False
+    try:
+        provided = base64.b64decode(signature, validate=True)
+    except (binascii.Error, ValueError):
+        return False
+    secrets_to_try = [config.client_secret]
+    if config.previous_client_secret and config.previous_client_secret != config.client_secret:
+        secrets_to_try.append(config.previous_client_secret)
+    valid = False
+    for secret in secrets_to_try:
+        expected = base64.b64decode(legacy_portal_signature(secret, config.client_id, timestamp))
+        valid = hmac.compare_digest(expected, provided) or valid
+    return valid
+
+
+def _issue_ticket(
+    validated: Mapping[str, Any],
+    *,
+    config: PortalSSOConfig,
+    correlation_id: str,
+    backend,
+) -> dict[str, Any]:
+    import secrets
+    import time as _time
+
+    target = validated.get("target")
+    if not target:
+        target = "/opportunity" if "/opportunity" in config.allowed_targets else config.allowed_targets[0]
+    ticket_record = {
+        "client_id": config.client_id,
+        "identity": _identity_payload_for_ticket(validated),
+        "target": target,
+        "request_id": correlation_id,
+        "issued_at_ms": int(_time.time() * 1000),
+    }
+    ticket_ttl = config.ticket_ttl_seconds
+    if ticket_ttl <= 0:
+        raise PortalSSOServiceError(PortalSSOErrorCode.CONFIG_INVALID)
+
+    ticket = ""
+    for _ in range(3):
+        ticket = secrets.token_urlsafe(32)  # 256 bits before URL-safe encoding.
+        ticket_key = _digest_cache_key("ticket", ticket)
+        try:
+            if backend.add(ticket_key, ticket_record, timeout=ticket_ttl, version=_cache_version()):
+                break
+        except Exception as exc:
+            raise PortalSSOServiceError(PortalSSOErrorCode.UNAVAILABLE) from exc
+    else:
+        raise PortalSSOServiceError(PortalSSOErrorCode.UNAVAILABLE)
+
+    _audit("ticket", "issued", correlation_id, config.client_id, external_user_id=validated.get("external_user_id"))
+    from maxkb.const import CONFIG
+
+    launch_path = f"{CONFIG.get_admin_path().rstrip('/')}/sso/portal#ticket={ticket}"
+    return {
+        # The portal resultPath reads this one-time ticket.  No MaxKB session
+        # token is placed in the launch URL or this response.
+        "ticket": ticket,
+        "launch_path": launch_path,
+        "expires_in": ticket_ttl,
+        "request_id": correlation_id,
+    }
+
+
 def create_portal_ticket(
     payload: Mapping[str, Any],
     *,
@@ -703,49 +794,83 @@ def create_portal_ticket(
     except Exception as exc:
         raise PortalSSOServiceError(PortalSSOErrorCode.UNAVAILABLE) from exc
 
-    import secrets
-    import time as _time
+    return _issue_ticket(validated, config=config, correlation_id=correlation_id, backend=backend)
 
-    target = validated.get("target")
-    if not target:
-        target = "/opportunity" if "/opportunity" in config.allowed_targets else config.allowed_targets[0]
-    ticket_record = {
-        "client_id": config.client_id,
-        "identity": _identity_payload_for_ticket(validated),
-        "target": target,
-        "request_id": correlation_id,
-        "issued_at_ms": int(_time.time() * 1000),
-    }
-    ticket_ttl = config.ticket_ttl_seconds
-    if ticket_ttl <= 0:
-        raise PortalSSOServiceError(PortalSSOErrorCode.CONFIG_INVALID)
 
-    ticket = ""
-    ticket_key = ""
-    for _ in range(3):
-        ticket = secrets.token_urlsafe(32)  # 256 bits before URL-safe encoding.
-        ticket_key = _digest_cache_key("ticket", ticket)
-        try:
-            if backend.add(ticket_key, ticket_record, timeout=ticket_ttl, version=_cache_version()):
-                break
-        except Exception as exc:
-            raise PortalSSOServiceError(PortalSSOErrorCode.UNAVAILABLE) from exc
-    else:
-        raise PortalSSOServiceError(PortalSSOErrorCode.UNAVAILABLE)
+def create_legacy_portal_ticket(
+    payload: Mapping[str, Any],
+    *,
+    config: PortalSSOConfig,
+    request_id: str | None = None,
+    rate_limit_subject: str = "unknown",
+    cache_backend=None,
+) -> dict[str, Any]:
+    """Accept the portal's existing redirect body and return a one-time ticket.
 
-    _audit("ticket", "issued", correlation_id, config.client_id, external_user_id=validated.get("external_user_id"))
-    from maxkb.const import CONFIG
+    The portal signs ``application:{clientId}\\ntimestamp:{timestamp}\\n`` with
+    HMAC-SHA1 and posts ``mobile``, ``username``, ``password``, ``signature``
+    and ``timestamp``.  The username is the only stable identity in that body.
+    The password is not an authentication secret and is discarded.
+    """
 
-    launch_path = f"{CONFIG.get_admin_path().rstrip('/')}/sso/portal#ticket={ticket}"
-    return {
-        # The portal's current resultPath reads this opaque value directly.
-        # It is still only a one-time ticket; no MaxKB session token is put in
-        # the launch URL or returned from this endpoint.
-        "ticket": ticket,
-        "launch_path": launch_path,
-        "expires_in": ticket_ttl,
-        "request_id": correlation_id,
-    }
+    correlation_id = _request_id(request_id)
+    backend = _cache_backend(cache_backend)
+    _require_enabled(config)
+    if not _rate_limit(backend, "tickets", rate_limit_subject):
+        _audit("ticket", "rate_limited", correlation_id, config.client_id)
+        raise PortalSSOServiceError(PortalSSOErrorCode.RATE_LIMITED)
+    if not isinstance(payload, Mapping) or set(payload) - LEGACY_PORTAL_FIELDS:
+        _audit("ticket", "invalid_request", correlation_id, config.client_id)
+        raise PortalSSOServiceError(PortalSSOErrorCode.INVALID_REQUEST)
+    username = payload.get("username")
+    if not isinstance(username, str) or not username.strip() or username != username.strip():
+        _audit("ticket", "invalid_request", correlation_id, config.client_id)
+        raise PortalSSOServiceError(PortalSSOErrorCode.INVALID_REQUEST)
+    if len(username) > PORTAL_SSO_FIELD_MAX_LENGTHS["username"]:
+        _audit("ticket", "invalid_request", correlation_id, config.client_id)
+        raise PortalSSOServiceError(PortalSSOErrorCode.INVALID_REQUEST)
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in username):
+        _audit("ticket", "invalid_request", correlation_id, config.client_id)
+        raise PortalSSOServiceError(PortalSSOErrorCode.INVALID_REQUEST)
+
+    try:
+        timestamp = _legacy_timestamp_text(payload.get("timestamp"))
+        skew = min(config.allowed_clock_skew_seconds, LEGACY_PORTAL_MAX_SKEW_SECONDS)
+        validate_timestamp(timestamp, allowed_clock_skew_seconds=skew)
+    except PortalSSOValidationError as exc:
+        _audit("ticket", "timestamp_invalid", correlation_id, config.client_id, external_user_id=username)
+        raise PortalSSOServiceError(PortalSSOErrorCode.TIMESTAMP_INVALID) from exc
+
+    signature = payload.get("signature")
+    if not _verify_legacy_signature(config, timestamp, signature if isinstance(signature, str) else ""):
+        _audit("ticket", "invalid_signature", correlation_id, config.client_id, external_user_id=username)
+        raise PortalSSOServiceError(PortalSSOErrorCode.INVALID_SIGNATURE)
+
+    replay_key = _digest_cache_key(f"legacy:{config.client_id}", str(signature))
+    replay_ttl = max(120, skew * 2)
+    try:
+        if not backend.add(replay_key, 1, timeout=replay_ttl, version=_cache_version()):
+            _audit("ticket", "nonce_replay", correlation_id, config.client_id, external_user_id=username)
+            raise PortalSSOServiceError(PortalSSOErrorCode.NONCE_REPLAY)
+    except PortalSSOServiceError:
+        raise
+    except Exception as exc:
+        raise PortalSSOServiceError(PortalSSOErrorCode.UNAVAILABLE) from exc
+
+    target = "/opportunity" if "/opportunity" in config.allowed_targets else config.allowed_targets[0]
+    try:
+        validated = validate_portal_payload(
+            {
+                "external_user_id": username,
+                "username": username,
+                "target": target,
+            },
+            config.allowed_targets,
+        )
+    except PortalSSOValidationError as exc:
+        _audit("ticket", "invalid_request", correlation_id, config.client_id, external_user_id=username)
+        raise PortalSSOServiceError(PortalSSOErrorCode.INVALID_REQUEST) from exc
+    return _issue_ticket(validated, config=config, correlation_id=correlation_id, backend=backend)
 
 
 def _safe_ticket_text(ticket: Any) -> str:
