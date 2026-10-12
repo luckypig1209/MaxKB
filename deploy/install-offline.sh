@@ -244,6 +244,24 @@ source "${SCRIPT_DIR}/initial-admin-password.sh"
 : "${BIA_PLATFORM:?BIA_PLATFORM is missing from release.env}"
 : "${BIA_IMAGE_TAR:?BIA_IMAGE_TAR is missing from release.env}"
 
+verify_declared_docker_bundle() {
+  local binary
+  local required_binaries=(
+    containerd containerd-shim-runc-v2 ctr docker dockerd docker-init docker-proxy runc docker-compose
+  )
+  if [ "${BIA_BUNDLED_DOCKER:-false}" != "true" ]; then
+    return 0
+  fi
+  for binary in "${required_binaries[@]}"; do
+    if [ ! -f "${DOCKER_BUNDLE_DIR}/bin/${binary}" ] || [ ! -x "${DOCKER_BUNDLE_DIR}/bin/${binary}" ]; then
+      fail "The package declares bundled Docker, but docker/bin/${binary} is missing or not executable."
+    fi
+  done
+}
+
+# Reject an incomplete full package before architecture checks or image loading.
+verify_declared_docker_bundle
+
 case "$(uname -m)" in
   x86_64|amd64) HOST_PLATFORM="linux/amd64" ;;
   *) fail "This package requires an x86_64/amd64 Linux server; host is $(uname -m)." ;;

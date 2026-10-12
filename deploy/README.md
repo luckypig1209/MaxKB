@@ -74,11 +74,15 @@ bash deploy/build-and-save.sh bia-v0.1.0 "$SHA" /data/bia/images
 
 ```bash
 export BIA_PLATFORM=linux/amd64
+export BIA_REQUIRE_BUNDLED_DOCKER=true
+export BIA_DOCKER_BUNDLE_DIR=/绝对路径/docker
 bash deploy/package-offline-release.sh \
-  bia-v0.3.0 <short-sha> \
-  images/bia_bia-v0.3.0_<short-sha>_amd64.tar \
+  bia-v0.4.0 <short-sha> \
+  images/bia_bia-v0.4.0-<short-sha>-amd64.tar \
   releases
 ```
+
+`BIA_DOCKER_BUNDLE_DIR/bin` 需要包含 containerd、containerd-shim-runc-v2、ctr、docker、dockerd、docker-init、docker-proxy、runc 和 docker-compose。这些二进制不进入 Git。已有 Docker 的升级包必须显式设置 `BIA_REQUIRE_BUNDLED_DOCKER=false`，产物会标明不能用于没有 Docker 的新服务器。
 
 输出的 `bia-<version>-<sha>-amd64.tar.gz` 上传服务器后，只需解压并执行
 `sudo ./install.sh`。详细要求见 `deploy/OFFLINE_INSTALL.md`。

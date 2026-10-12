@@ -1,6 +1,6 @@
 # 商机智能分析系统 x86 离线安装包
 
-本安装包适用于 `x86_64/amd64` Linux 服务器。服务器无需源码、Git、Node.js、Python 或外网，只需提前安装 Docker 和 Docker Compose。
+本安装包适用于 `x86_64/amd64` Linux 服务器。服务器无需源码、Git、Node.js、Python 或外网。完整包自带 Docker 静态二进制；包内说明标明为升级包时，目标机必须已经安装 Docker Engine 和 Docker Compose。
 
 ## 一键安装
 
@@ -38,8 +38,8 @@ sudo docker compose up -d
 ## 安装前要求
 
 - Linux x86_64/amd64；
-- Docker Engine 可用；
-- Docker Compose v2，或兼容的 `docker-compose`；
+- 完整包在没有 Docker 的 systemd 主机上安装自带引擎；目标机已有 Docker 时复用现有引擎，不覆盖 `/etc/docker/daemon.json`；
+- 升级包不包含 Docker，目标机必须已有 Docker Engine，以及 Docker Compose v2 或兼容的 `docker-compose`；
 - 建议至少 4 核 CPU、8 GB 内存、50 GB 可用磁盘；
 - 默认端口 `29090` 可从客户端访问；
 - `/data/bia` 所在磁盘需要持久化和定期备份。
