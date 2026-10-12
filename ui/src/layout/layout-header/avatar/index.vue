@@ -1,6 +1,10 @@
 <template>
   <el-dropdown trigger="click" placement="bottom-end">
-    <div class="flex-center cursor">
+    <button
+      type="button"
+      class="avatar-trigger flex-center cursor"
+      :aria-label="accountLabel.title || $t('layout.portalAccount')"
+    >
       <el-avatar :size="30">
         <img src="@/assets/user-icon.svg" style="width: 54%" alt="" />
       </el-avatar>
@@ -9,7 +13,7 @@
       <el-icon class="el-icon--right">
         <CaretBottom/>
       </el-icon> -->
-    </div>
+    </button>
 
     <template #dropdown>
       <el-dropdown-menu class="avatar-dropdown">
@@ -19,11 +23,12 @@
               <img src="@/assets/user-icon.svg" style="width: 54%" alt="" />
             </el-avatar>
           </div>
-          <div style="width: 90%">
-            <p class="bold mb-4" style="font-size: 14px">
-              {{ i18n_name(user.userInfo?.nick_name as string) }}
-              <span class="color-secondary lighter">({{ user.userInfo?.username }})</span>
+          <div class="user-meta">
+            <p class="user-name" :title="accountLabel.title">
+              {{ i18n_name(accountLabel.primary) }}
+              <span v-if="accountLabel.showUsername" class="user-username">({{ accountLabel.username }})</span>
             </p>
+            <span v-if="accountLabel.portal" class="portal-account-tag">{{ $t('layout.portalAccount') }}</span>
             <template v-if="user.userInfo?.role_name && user.userInfo.role_name.length > 0">
               <TagGroup
                 size="small"
@@ -177,8 +182,10 @@ import { langList } from '@/locales/index'
 import { hasPermission } from '@/utils/permission'
 import { PermissionConst, RoleConst, EditionConst } from '@/utils/permission/data'
 import { i18n_name } from '@/utils/common'
+import { avatarAccountLabel } from './account-label'
 
 const { user, login } = useStore()
+const accountLabel = computed(() => avatarAccountLabel(user.userInfo))
 const router = useRouter()
 
 const AboutDialogRef = ref()
@@ -235,12 +242,65 @@ onMounted(() => {
 })
 </script>
 <style lang="scss" scoped>
+.avatar-trigger {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  flex: 0 0 auto;
+  color: inherit;
+  font: inherit;
+
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
 .avatar-dropdown {
-  min-width: 210px;
-  max-width: 400px;
+  min-width: 0;
+  width: min(240px, calc(100vw - 24px));
+  max-width: min(400px, calc(100vw - 24px));
 
   .userInfo {
     padding: 12px 11px;
+    min-width: 0;
+  }
+
+  .user-meta {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .user-name {
+    margin: 0 0 4px;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ink);
+    font-size: 13.5px;
+    font-weight: 700;
+    line-height: 1.4;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .user-username {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 400;
+  }
+
+  .portal-account-tag {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    color: var(--ink2);
+    background: var(--surface2);
+    padding: 3px 9px;
+    border-radius: 8px;
+    font-size: 11px;
+    line-height: 1.4;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   :deep(.el-dropdown-menu__item) {

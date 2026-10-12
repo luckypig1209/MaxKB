@@ -9,6 +9,7 @@ import {localeConfigKey, getBrowserLang} from '@/locales/index'
 import useThemeStore from './theme'
 import {defaultPlatformSetting} from '@/utils/theme'
 import useLoginStore from './login'
+import { markPortalStage, portalProfileTimingEnabled } from '@/utils/portal-timing'
 
 export interface userStateTypes {
   userInfo: User | null
@@ -115,7 +116,9 @@ const useUserStore = defineStore('user', {
       return this.edition
     },
     async profile(loading?: Ref<boolean>) {
+      if (portalProfileTimingEnabled()) markPortalStage('user_profile_start')
       return UserApi.getUserProfile(loading).then((ok) => {
+        if (portalProfileTimingEnabled()) markPortalStage('user_profile_end')
         this.userInfo = ok.data
         const workspace_list =
           ok.data.workspace_list && ok.data.workspace_list.length > 0
@@ -130,7 +133,10 @@ const useUserStore = defineStore('user', {
           ok?.data?.language || this.getLanguage()
         const theme = useThemeStore()
         theme.setTheme()
-        return this.asyncGetProfile()
+        if (portalProfileTimingEnabled()) markPortalStage('system_profile_start')
+        return this.asyncGetProfile().finally(() => {
+          if (portalProfileTimingEnabled()) markPortalStage('system_profile_end')
+        })
       })
     },
 
@@ -144,6 +150,7 @@ const useUserStore = defineStore('user', {
             this.version = ok.data.version
             this.rsaKey = ok.data.rsa
             const theme = useThemeStore()
+            if (portalProfileTimingEnabled()) markPortalStage('theme_start')
             if (this.isEE() || this.isPE()) {
               await theme.theme()
             } else {
@@ -152,6 +159,7 @@ const useUserStore = defineStore('user', {
                 ...defaultPlatformSetting,
               }
             }
+            if (portalProfileTimingEnabled()) markPortalStage('theme_end')
             resolve(ok)
           })
           .catch((error) => {

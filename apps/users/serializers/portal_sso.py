@@ -22,13 +22,15 @@ class PortalTicketRequestSerializer(serializers.Serializer):
         # DRF normally drops unknown keys before ``validate``.  SSO signs the
         # complete closed body, so an extension field must be rejected rather
         # than silently removed from the signed representation.
+        # A string detail becomes a one-element list, and DRF then builds
+        # ``ReturnDict`` from that list.  Keep the detail a mapping.
         if not isinstance(data, Mapping):
-            raise serializers.ValidationError("Portal SSO request body must be an object")
+            raise serializers.ValidationError({"non_field_errors": ["Invalid portal SSO request"]})
         allowed_targets = getattr(self.context.get("config"), "allowed_targets", DEFAULT_ALLOWED_TARGETS)
         try:
             return validate_portal_payload(data, allowed_targets)
         except PortalSSOValidationError as exc:
-            raise serializers.ValidationError(str(exc)) from exc
+            raise serializers.ValidationError({"non_field_errors": ["Invalid portal SSO request"]}) from exc
 
     def validate(self, attrs):
         return attrs
@@ -39,9 +41,9 @@ class PortalTicketExchangeSerializer(serializers.Serializer):
 
     def to_internal_value(self, data):
         if not isinstance(data, Mapping) or set(data) != {"ticket"}:
-            raise serializers.ValidationError("Invalid portal SSO ticket request")
+            raise serializers.ValidationError({"non_field_errors": ["Invalid portal SSO ticket request"]})
         if not isinstance(data.get("ticket"), str):
-            raise serializers.ValidationError("Invalid portal SSO ticket")
+            raise serializers.ValidationError({"non_field_errors": ["Invalid portal SSO ticket"]})
         return super().to_internal_value(data)
 
     def validate_ticket(self, value):

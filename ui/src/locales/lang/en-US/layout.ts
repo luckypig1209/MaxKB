@@ -3,6 +3,7 @@ export default {
   wiki: 'User Manual',
   forum: 'Forum For Help',
   logout: 'Log Out',
+  portalAccount: 'Portal account',
   openMenu: 'Open menu',
   menu: 'Menu',
   apiKey: 'API Key',

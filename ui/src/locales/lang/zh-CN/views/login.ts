@@ -5,8 +5,10 @@ export default {
   portalSso: {
     title: '正在验证门户身份',
     subtitle: '请稍候，系统将为你建立安全会话',
+    loadingSlow: '正在加载账号与权限信息，请继续等待…',
     loading: '正在连接门户，请稍候…',
     ticketInvalid: '票据已失效或已使用，请返回门户重新进入。',
+    ticketMissing: '门户未正确返回登录票据，请联系管理员检查单点登录配置。',
     configError: '门户免登录暂不可用，请联系系统管理员。',
     accountUnbound: '门户账号尚未绑定或已停用，请联系系统管理员。',
     unavailable: '服务暂不可用，请稍后重试或使用本地账号登录。',

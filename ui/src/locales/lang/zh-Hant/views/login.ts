@@ -5,8 +5,10 @@ export default {
   portalSso: {
     title: '正在驗證入口網站身分',
     subtitle: '請稍候，系統將為你建立安全工作階段',
+    loadingSlow: '正在載入帳號與權限資訊，請繼續等待…',
     loading: '正在連接入口網站，請稍候…',
     ticketInvalid: '票據已失效或已使用，請返回入口網站重新進入。',
+    ticketMissing: '入口網站未正確返回登入票據，請聯絡管理員檢查單一登入設定。',
     configError: '入口網站免登入目前不可用，請聯絡系統管理員。',
     accountUnbound: '入口網站帳號尚未綁定或已停用，請聯絡系統管理員。',
     unavailable: '服務暫時不可用，請稍後再試或使用本地帳號登入。',

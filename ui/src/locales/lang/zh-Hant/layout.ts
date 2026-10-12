@@ -3,6 +3,7 @@ export default {
   wiki: '使用者手冊',
   forum: '論壇求助',
   logout: '登出',
+  portalAccount: '入口網站帳號',
   openMenu: '打開選單',
   menu: '選單',
   apiKey: 'API Key 管理',

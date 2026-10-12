@@ -5,8 +5,10 @@ export default {
   portalSso: {
     title: 'Verifying your portal identity',
     subtitle: 'Please wait while we establish a secure session',
+    loadingSlow: 'Loading the account and permissions. Please keep waiting…',
     loading: 'Connecting to the portal…',
     ticketInvalid: 'This ticket has expired or was already used. Return to the portal and try again.',
+    ticketMissing: 'The portal did not return a login ticket. Ask an administrator to check the single sign-on configuration.',
     configError: 'Portal sign-in is currently unavailable. Contact your administrator.',
     accountUnbound: 'This portal account is not bound or has been disabled. Contact your administrator.',
     unavailable: 'The service is temporarily unavailable. Try again later or use local sign-in.',

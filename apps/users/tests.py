@@ -1,4 +1,5 @@
 import importlib
+import json
 import time
 from io import StringIO
 from unittest.mock import patch
@@ -12,11 +13,12 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import IntegrityError, transaction
 from django.db.models.deletion import ProtectedError
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from maxkb.const import CONFIG
 from users.models import User
 from users.models.external_identity import UserExternalIdentity
 from users.services.portal_sso import (
+    portal_display_name,
     PortalSSOConfig,
     PortalSSOErrorCode,
     PortalSSOServiceError,
@@ -26,6 +28,7 @@ from users.services.portal_sso import (
     create_portal_ticket,
     exchange_portal_ticket,
     legacy_portal_signature,
+    normalize_legacy_portal_payload,
     sign_request,
     validate_portal_payload,
     validate_timestamp,
@@ -190,6 +193,19 @@ class PortalSSOProtocolTests(TestCase):
         with self.assertRaises(PortalSSOValidationError):
             validate_timestamp(str(now_ms + 60_001), now_ms=now_ms, allowed_clock_skew_seconds=60)
 
+    def test_portal_display_name_keeps_hash_out_of_the_label(self):
+        long_name = "名" * 180
+        nick = portal_display_name(long_name, "ext-long-display")
+        self.assertLessEqual(len(nick), 150)
+        self.assertTrue(nick.endswith("（门户）"))
+        self.assertNotIn("portal_", nick)
+        marked = portal_display_name("admin", "ext-mark", disambiguate=True)
+        self.assertTrue(marked.startswith("admin（门户·"))
+        self.assertEqual(len(marked.split("·", 1)[1].rstrip("）")), 6)
+        empty = portal_display_name("   ", "ext-empty-display")
+        self.assertTrue(empty.startswith("门户用户·"))
+        self.assertEqual(len(empty.split("·", 1)[1]), 6)
+
 
 class PortalSSOConfigTests(TestCase):
     def test_config_is_typed_and_defaults_do_not_contain_real_endpoints(self):
@@ -197,6 +213,9 @@ class PortalSSOConfigTests(TestCase):
         self.assertFalse(config.enabled)
         self.assertEqual(config.allowed_targets, ("/home", "/opportunity", "/opportunity/records"))
         self.assertEqual(config.client_secret, "")
+        self.assertEqual(config.existing_user_policy, "REJECT")
+        with self.assertRaises(PortalSSOValidationError):
+            PortalSSOConfig.from_mapping({"PORTAL_SSO_EXISTING_USER_POLICY": "AUTO_BIND_BY_USERNAME"})
 
     def test_enabled_config_requires_client_id_and_secret(self):
         with self.assertRaises(PortalSSOValidationError):
@@ -620,6 +639,314 @@ class PortalSSOStatefulTests(TestCase):
             exchange_portal_ticket(conflict_ticket["ticket"], config=self.config, rate_limit_subject="conflict")
         self.assertEqual(conflict.exception.code, PortalSSOErrorCode.BIND_REQUIRED)
 
+    def _policy_config(self, *, auto_provision=True, policy="CREATE_NAMESPACED"):
+        return PortalSSOConfig(
+            enabled=True,
+            client_id=self.config.client_id,
+            client_secret=self.config.client_secret,
+            allowed_targets=self.config.allowed_targets,
+            auto_provision=auto_provision,
+            existing_user_policy=policy,
+            ticket_ttl_seconds=60,
+        )
+
+    def _exchange_named(self, config, external_id, username, *, email=None, display_name=None, nonce=None):
+        body = {
+            "external_user_id": external_id,
+            "username": username,
+            "target": "/opportunity",
+        }
+        if email is not None:
+            body["email"] = email
+        if display_name is not None:
+            body["display_name"] = display_name
+        ticket = self._issue(
+            config=config,
+            body=body,
+            nonce=nonce or f"nonce-{external_id}-0123456789",
+        )
+        return exchange_portal_ticket(
+            ticket["ticket"], config=config, rate_limit_subject=external_id
+        )
+
+    def _assert_isolated_from(self, external_id, existing, *, portal_username):
+        identity = UserExternalIdentity.objects.select_related("user").get(
+            provider="PORTAL", external_user_id=external_id
+        )
+        self.assertNotEqual(identity.user_id, existing.id)
+        self.assertEqual(identity.user.role, "USER")
+        self.assertEqual(identity.user.source, "PORTAL")
+        self.assertTrue(identity.user.username.startswith("portal_"))
+        self.assertEqual(identity.user.nick_name, f"{portal_username}（门户）")
+        self.assertNotIn(identity.user.username, identity.user.nick_name)
+        self.assertEqual(identity.user.phone, "")
+        self.assertIsNone(identity.user.email)
+        self.assertEqual(identity.external_username, portal_username)
+        self.assertFalse(
+            UserExternalIdentity.objects.filter(provider="PORTAL", user=existing, external_user_id=external_id).exists()
+        )
+        return identity
+
+    def test_same_name_conflict_never_binds_admin_user_or_workspace_admin(self):
+        admin = User.objects.get(username="admin")
+        ordinary = User.objects.create(
+            username="ordinary-local",
+            nick_name="Ordinary Local",
+            email="ordinary-local@example.test",
+            phone="13900001111",
+            password="!",
+            role="USER",
+            source="LOCAL",
+            is_active=True,
+        )
+        workspace_admin = User.objects.create(
+            username="workspace-admin",
+            nick_name="Workspace Admin",
+            email=None,
+            phone="13900002222",
+            password="!",
+            role="WORKSPACE_MANAGE",
+            source="LOCAL",
+            is_active=True,
+        )
+        config = self._policy_config()
+        self._exchange_named(config, "ext-admin", "admin", nonce="nonce-ext-admin-0123456789")
+        self._exchange_named(
+            config,
+            "ext-ordinary",
+            "ordinary-local",
+            email="ordinary-local@example.test",
+            nonce="nonce-ext-ordinary-01234567",
+        )
+        self._exchange_named(config, "ext-workspace", "workspace-admin", nonce="nonce-ext-workspace-012345")
+        self._assert_isolated_from("ext-admin", admin, portal_username="admin")
+        isolated = self._assert_isolated_from("ext-ordinary", ordinary, portal_username="ordinary-local")
+        self.assertNotEqual(isolated.user.email, ordinary.email)
+        self.assertNotEqual(isolated.user.phone, ordinary.phone)
+        self.assertEqual(ordinary.phone, "13900001111")
+        self._assert_isolated_from("ext-workspace", workspace_admin, portal_username="workspace-admin")
+
+    def test_reject_policy_keeps_same_name_unbound(self):
+        User.objects.create(
+            username="reject-local",
+            nick_name="Reject Local",
+            email=None,
+            password="!",
+            role="USER",
+            source="LOCAL",
+            is_active=True,
+        )
+        config = self._policy_config(policy="REJECT")
+        before = User.objects.count()
+        with self.assertRaises(PortalSSOServiceError) as conflict:
+            self._exchange_named(config, "ext-reject", "reject-local", nonce="nonce-ext-reject-012345678")
+        self.assertEqual(conflict.exception.code, PortalSSOErrorCode.BIND_REQUIRED)
+        self.assertEqual(User.objects.count(), before)
+        self.assertFalse(UserExternalIdentity.objects.filter(external_user_id="ext-reject").exists())
+
+    def test_explicit_mapping_still_logs_into_the_bound_user(self):
+        bound = User.objects.create(
+            username="explicit-bound",
+            nick_name="Explicit Bound",
+            email=None,
+            password="!",
+            role="USER",
+            source="LOCAL",
+            is_active=True,
+        )
+        other = User.objects.create(
+            username="explicit-other",
+            nick_name="Explicit Other",
+            email=None,
+            password="!",
+            role="ADMIN",
+            source="LOCAL",
+            is_active=True,
+        )
+        UserExternalIdentity.objects.create(
+            provider="PORTAL",
+            external_user_id="ext-explicit",
+            user=bound,
+            status=UserExternalIdentity.Status.ACTIVE,
+        )
+        token_data, _file_token = self._exchange_named(
+            self._policy_config(),
+            "ext-explicit",
+            "explicit-other",
+            nonce="nonce-ext-explicit-0123456",
+        )
+        self.assertEqual(TokenDetails(token_data["token"]).get_token_details()["id"], str(bound.id))
+        self.assertFalse(UserExternalIdentity.objects.filter(user=other).exists())
+
+    def test_auto_provision_off_creates_nothing_for_either_policy(self):
+        before = User.objects.count()
+        for policy in ("REJECT", "CREATE_NAMESPACED"):
+            config = self._policy_config(auto_provision=False, policy=policy)
+            with self.assertRaises(PortalSSOServiceError) as unbound:
+                self._exchange_named(
+                    config,
+                    f"ext-off-{policy.lower()}",
+                    f"brand-new-{policy.lower()}",
+                    nonce=f"nonce-off-{policy.lower()}-012345",
+                )
+            self.assertEqual(unbound.exception.code, PortalSSOErrorCode.BIND_REQUIRED)
+        self.assertEqual(User.objects.count(), before)
+
+    def test_integrity_error_reuses_only_the_same_external_identity(self):
+        config = self._policy_config()
+        winner = User.objects.create(
+            username="race-winner",
+            nick_name="Race Winner",
+            email=None,
+            password="!",
+            role="USER",
+            source="PORTAL",
+            is_active=True,
+        )
+        UserExternalIdentity.objects.create(
+            provider="PORTAL",
+            external_user_id="ext-race",
+            user=winner,
+            status=UserExternalIdentity.Status.ACTIVE,
+        )
+        original_filter = UserExternalIdentity.objects.filter
+        state = {"calls": 0}
+
+        def hide_first_identity(*args, **kwargs):
+            state["calls"] += 1
+            queryset = original_filter(*args, **kwargs)
+            if state["calls"] == 1:
+                return queryset.none()
+            return queryset
+
+        before = User.objects.count()
+        with patch.object(UserExternalIdentity.objects, "filter", hide_first_identity), patch.object(
+            User.objects, "create", side_effect=IntegrityError("duplicate")
+        ):
+            token_data, _file_token = self._exchange_named(
+                config, "ext-race", "race-winner", nonce="nonce-ext-race-0123456789"
+            )
+        self.assertEqual(TokenDetails(token_data["token"]).get_token_details()["id"], str(winner.id))
+        self.assertEqual(User.objects.count(), before)
+        self.assertEqual(UserExternalIdentity.objects.filter(external_user_id="ext-race").count(), 1)
+
+        with patch.object(User.objects, "create", side_effect=IntegrityError("duplicate")):
+            with self.assertRaises(PortalSSOServiceError) as unbound:
+                self._exchange_named(
+                    config, "ext-race-miss", "brand-new-race", nonce="nonce-ext-race-miss-012345"
+                )
+        self.assertEqual(unbound.exception.code, PortalSSOErrorCode.BIND_REQUIRED)
+        self.assertEqual(User.objects.count(), before)
+        self.assertFalse(UserExternalIdentity.objects.filter(external_user_id="ext-race-miss").exists())
+
+    def test_bound_local_user_is_not_rebound_to_another_portal_identity(self):
+        owner = User.objects.create(
+            username="owned-name",
+            nick_name="Owned Name",
+            email=None,
+            password="!",
+            role="USER",
+            source="LOCAL",
+            is_active=True,
+        )
+        UserExternalIdentity.objects.create(
+            provider="PORTAL",
+            external_user_id="ext-owner",
+            user=owner,
+            status=UserExternalIdentity.Status.ACTIVE,
+        )
+        self._exchange_named(
+            self._policy_config(),
+            "ext-intruder",
+            "owned-name",
+            nonce="nonce-ext-intruder-01234567",
+        )
+        owner_identity = UserExternalIdentity.objects.get(external_user_id="ext-owner")
+        intruder_identity = UserExternalIdentity.objects.get(external_user_id="ext-intruder")
+        self.assertEqual(owner_identity.user_id, owner.id)
+        self.assertNotEqual(intruder_identity.user_id, owner.id)
+        self.assertEqual(intruder_identity.user.role, "USER")
+
+    def test_legacy_username_tamper_cannot_capture_local_admin(self):
+        admin = User.objects.get(username="admin")
+        config = self._policy_config()
+        timestamp = str(int(time.time() * 1000))
+        signature = legacy_portal_signature(config.client_secret, config.client_id, timestamp)
+        tampered = {
+            "mobile": "13800000000",
+            "username": "admin",
+            "password": "not-a-credential",
+            "signature": signature,
+            "timestamp": int(timestamp),
+        }
+        ticket = create_legacy_portal_ticket(
+            tampered,
+            config=config,
+            request_id="legacy-tamper",
+            rate_limit_subject="legacy-tamper",
+        )
+        token_data, _file_token = exchange_portal_ticket(
+            ticket["ticket"], config=config, rate_limit_subject="legacy-tamper-exchange"
+        )
+        identity = self._assert_isolated_from("admin", admin, portal_username="admin")
+        self.assertEqual(TokenDetails(token_data["token"]).get_token_details()["id"], str(identity.user_id))
+        self.assertNotEqual(identity.user_id, admin.id)
+
+    @patch("common.utils.logger.maxkb_logger.info")
+    def test_namespaced_provision_audit_omits_sensitive_values(self, info):
+        self._exchange_named(
+            self._policy_config(),
+            "ext-audit",
+            "admin",
+            email="audit-secret@example.test",
+            nonce="nonce-ext-audit-0123456789",
+        )
+        rendered = " ".join(str(part) for call in info.call_args_list for part in call.args)
+        self.assertIn("CREATE_NAMESPACED", rendered)
+        self.assertIn("created_namespaced", rendered)
+        self.assertNotIn("admin", rendered)
+        self.assertNotIn("audit-secret@example.test", rendered)
+        self.assertNotIn(self.config.client_secret, rendered)
+        self.assertNotIn("not-a-credential", rendered)
+        self.assertNotIn("ticket=", rendered)
+
+    def test_empty_portal_username_uses_portal_user_label(self):
+        self._exchange_named(
+            self._policy_config(),
+            "ext-empty-name",
+            "",
+            nonce="nonce-ext-empty-name-01",
+        )
+        identity = UserExternalIdentity.objects.get(provider="PORTAL", external_user_id="ext-empty-name")
+        self.assertTrue(identity.user.username.startswith("portal_"))
+        self.assertTrue(identity.user.nick_name.startswith("门户用户·"))
+        self.assertEqual(len(identity.user.nick_name.split("·", 1)[1]), 6)
+        self.assertNotIn(identity.user.username, identity.user.nick_name)
+
+    def test_namespaced_nick_uses_digest_when_friendly_name_is_taken(self):
+        User.objects.create(
+            username="friendly-nick-holder",
+            nick_name="admin（门户）",
+            email=None,
+            password="!",
+            role="USER",
+            source="LOCAL",
+            is_active=True,
+        )
+        admin = User.objects.get(username="admin")
+        self._exchange_named(
+            self._policy_config(),
+            "ext-nick-clash",
+            "admin",
+            nonce="nonce-ext-nick-clash-01",
+        )
+        identity = UserExternalIdentity.objects.get(provider="PORTAL", external_user_id="ext-nick-clash")
+        self.assertNotEqual(identity.user_id, admin.id)
+        self.assertTrue(identity.user.username.startswith("portal_"))
+        self.assertIn("（门户·", identity.user.nick_name)
+        self.assertNotIn(identity.user.username, identity.user.nick_name)
+        self.assertFalse(UserExternalIdentity.objects.filter(provider="PORTAL", user=admin).exists())
+
     def test_provider_and_user_constraints_protect_mapping(self):
         user = User.objects.create(
             username="constraint-user",
@@ -707,6 +1034,237 @@ class PortalSSOEndpointContractTests(TestCase):
         self.assertIn("ticket", response.content.decode())
         self.assertNotIn("formal-session-token", response.content.decode())
 
+    def _legacy_body(self, username="portal-user"):
+        timestamp = int(time.time() * 1000)
+        return {
+            "mobile": "13800000000",
+            "username": username,
+            "password": "not-a-credential",
+            "signature": legacy_portal_signature(
+                self.config.client_secret, self.config.client_id, str(timestamp)
+            ),
+            "timestamp": timestamp,
+        }
+
+    def test_legacy_mapping_subclass_is_copied_before_ticket_creation(self):
+        source = type("PortalBody", (dict,), {})(self._legacy_body())
+        payload = normalize_legacy_portal_payload(source)
+        self.assertEqual(type(payload), dict)
+        self.assertIsNot(payload, source)
+        self.assertEqual(payload["username"], source["username"])
+        self.assertIsNone(normalize_legacy_portal_payload({**source, "clientId": "extra"}))
+
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "portal-sso-legacy",
+            }
+        }
+    )
+    @patch("users.services.portal_sso.canonical_json", side_effect=AssertionError("legacy path"))
+    @patch("users.views.portal_sso._config")
+    def test_form_parsed_portal_json_issues_ticket_through_django_cache(self, get_config, _canonical):
+        from django.core.cache import cache as django_cache
+        from rest_framework.test import APIRequestFactory
+        from users.views.portal_sso import PortalTicketView
+
+        django_cache.clear()
+        get_config.return_value = self.config
+        body = self._legacy_body()
+        request = APIRequestFactory().post(
+            "/admin/api/user/sso/portal/tickets",
+            data=json.dumps(body).encode(),
+            content_type="application/x-www-form-urlencoded",
+        )
+        response = PortalTicketView.as_view()(request)
+        rendered = response.content.decode()
+        payload = json.loads(rendered)
+        self.assertEqual(payload["code"], 200)
+        ticket = payload["data"]["ticket"]
+        self.assertGreaterEqual(len(ticket), 43)
+        self.assertNotIn("not-a-credential", rendered)
+        self.assertNotIn("dictionary update", rendered)
+        self.assertNotIn("${token}", rendered)
+
+        with self.assertRaises(PortalSSOServiceError) as unbound:
+            exchange_portal_ticket(ticket, config=self.config, rate_limit_subject="legacy-unbound")
+        self.assertEqual(unbound.exception.code, PortalSSOErrorCode.BIND_REQUIRED)
+
+        issuing = PortalSSOConfig(
+            enabled=True,
+            client_id=self.config.client_id,
+            client_secret=self.config.client_secret,
+            allowed_targets=("/opportunity",),
+            auto_provision=True,
+        )
+        get_config.return_value = issuing
+        second = self._legacy_body(username="portal-user-exchange")
+        second_request = APIRequestFactory().post(
+            "/admin/api/user/sso/portal/tickets",
+            data=json.dumps(second).encode(),
+            content_type="application/x-www-form-urlencoded",
+        )
+        second_response = json.loads(PortalTicketView.as_view()(second_request).content.decode())
+        session_ticket = second_response["data"]["ticket"]
+        exchanged, _file_token = exchange_portal_ticket(
+            session_ticket, config=issuing, rate_limit_subject="legacy-exchange"
+        )
+        self.assertTrue(exchanged["token"])
+        self.assertEqual(exchanged["target"], "/opportunity")
+        with self.assertRaises(PortalSSOServiceError) as replayed:
+            exchange_portal_ticket(session_ticket, config=issuing, rate_limit_subject="legacy-replay")
+        self.assertEqual(replayed.exception.code, PortalSSOErrorCode.TICKET_INVALID)
+
+    @patch("users.views.portal_sso._config")
+    def test_unknown_portal_body_does_not_leak_serializer_internals(self, get_config):
+        from rest_framework.test import APIRequestFactory
+        from users.views.portal_sso import PortalTicketView
+
+        get_config.return_value = self.config
+        request = APIRequestFactory().post(
+            "/admin/api/user/sso/portal/tickets",
+            {"mobile": "13800000000", "clientId": "extra"},
+            format="json",
+        )
+        rendered = PortalTicketView.as_view()(request).content.decode()
+        payload = json.loads(rendered)
+        self.assertEqual(payload["code"], PortalSSOErrorCode.INVALID_REQUEST)
+        self.assertNotIn("dictionary update", rendered)
+        self.assertNotIn("unknown portal", rendered)
+
+    @patch("django.core.cache.cache.add", side_effect=RuntimeError("redis-down-marker"))
+    @patch("users.views.portal_sso._config")
+    def test_cache_outage_hides_the_internal_exception(self, get_config, _add):
+        from rest_framework.test import APIRequestFactory
+        from users.views.portal_sso import PortalTicketView
+
+        get_config.return_value = self.config
+        request = APIRequestFactory().post(
+            "/admin/api/user/sso/portal/tickets",
+            self._legacy_body(),
+            format="json",
+        )
+        rendered = PortalTicketView.as_view()(request).content.decode()
+        payload = json.loads(rendered)
+        self.assertEqual(payload["code"], PortalSSOErrorCode.UNAVAILABLE)
+        self.assertNotIn("redis-down-marker", rendered)
+        self.assertNotIn("Traceback", rendered)
+
+    def _post_portal_body(self, body, *, content_type="application/json"):
+        from rest_framework.test import APIRequestFactory
+        from users.views.portal_sso import PortalTicketView
+
+        if content_type == "application/json":
+            request = APIRequestFactory().post(
+                "/admin/api/user/sso/portal/tickets",
+                body,
+                format="json",
+            )
+        else:
+            request = APIRequestFactory().post(
+                "/admin/api/user/sso/portal/tickets",
+                data=json.dumps(body).encode(),
+                content_type=content_type,
+            )
+        rendered = PortalTicketView.as_view()(request).content.decode()
+        return json.loads(rendered), rendered
+
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "portal-sso-live-body",
+            }
+        }
+    )
+    @patch("users.views.portal_sso.create_portal_ticket", side_effect=AssertionError("v2 path"))
+    @patch("users.views.portal_sso._config")
+    def test_live_portal_body_issues_ticket_and_ignores_extra_fields(self, get_config, _v2):
+        from django.core.cache import cache as django_cache
+
+        django_cache.clear()
+        get_config.return_value = self.config
+        body = self._legacy_body(username="admin")
+        body["mobile"] = None
+        body["autoCreate"] = False
+        body["userId"] = "portal-user-id-secret"
+        subclass = type("PortalBody", (dict,), {})(body)
+        from users.services.portal_sso import classify_legacy_mapping
+
+        protocol, classified, reason, _meta = classify_legacy_mapping(subclass)
+        self.assertEqual(protocol, "legacy")
+        self.assertEqual(reason, "legacy_recognized")
+        self.assertEqual(type(classified), dict)
+        self.assertNotIn("userId", classified)
+        self.assertNotIn("autoCreate", classified)
+        payload, rendered = self._post_portal_body(body)
+        self.assertEqual(payload["code"], 200)
+        self.assertGreaterEqual(len(payload["data"]["ticket"]), 43)
+        self.assertNotIn("portal-user-id-secret", rendered)
+        self.assertNotIn("not-a-credential", rendered)
+        self.assertNotIn(body["signature"], rendered)
+        self.assertNotIn("autoCreate", rendered)
+        self.assertNotIn("dictionary update", rendered)
+
+        form_body = self._legacy_body(username="admin-form")
+        form_body["autoCreate"] = True
+        form_body["userId"] = 10001
+        form_payload, form_rendered = self._post_portal_body(
+            form_body, content_type="application/x-www-form-urlencoded"
+        )
+        self.assertEqual(form_payload["code"], 200)
+        self.assertGreaterEqual(len(form_payload["data"]["ticket"]), 43)
+        self.assertNotIn("not-a-credential", form_rendered)
+
+        same_signature = dict(form_body)
+        replay_payload, _replay_rendered = self._post_portal_body(same_signature)
+        self.assertEqual(replay_payload["code"], PortalSSOErrorCode.NONCE_REPLAY)
+
+    @patch("users.views.portal_sso.create_portal_ticket", side_effect=AssertionError("v2 path"))
+    @patch("users.views.portal_sso._config")
+    def test_legacy_attempt_does_not_fall_through_when_fields_are_wrong(self, get_config, _v2):
+        get_config.return_value = self.config
+        missing, _rendered = self._post_portal_body(
+            {"mobile": "", "password": "not-a-credential", "signature": "abc", "timestamp": 1}
+        )
+        self.assertEqual(missing["code"], PortalSSOErrorCode.INVALID_REQUEST)
+        unknown = self._legacy_body()
+        unknown["clientId"] = "extra"
+        unknown_payload, unknown_rendered = self._post_portal_body(unknown)
+        self.assertEqual(unknown_payload["code"], PortalSSOErrorCode.INVALID_REQUEST)
+        self.assertNotIn("not-a-credential", unknown_rendered)
+        self.assertNotIn(unknown["signature"], unknown_rendered)
+
+        stale = self._legacy_body()
+        stale["timestamp"] = 1
+        stale["signature"] = legacy_portal_signature(self.config.client_secret, self.config.client_id, "1")
+        stale_payload, _stale_rendered = self._post_portal_body(stale)
+        self.assertEqual(stale_payload["code"], PortalSSOErrorCode.TIMESTAMP_INVALID)
+
+        forged = self._legacy_body()
+        forged["signature"] = "bm90LWEgc2lnbmF0dXJl"
+        forged_payload, _forged_rendered = self._post_portal_body(forged)
+        self.assertEqual(forged_payload["code"], PortalSSOErrorCode.INVALID_SIGNATURE)
+
+    @patch("common.utils.logger.maxkb_logger.info")
+    @patch("users.views.portal_sso._config")
+    def test_legacy_classify_log_records_reason_without_sensitive_values(self, get_config, info):
+        get_config.return_value = self.config
+        body = self._legacy_body(username="admin")
+        body["autoCreate"] = False
+        body["userId"] = "portal-user-id-secret"
+        body["clientId"] = "extra"
+        _payload, rendered = self._post_portal_body(body)
+        logged = " ".join(str(part) for call in info.call_args_list for part in call.args)
+        self.assertIn("legacy_unknown_fields", logged)
+        self.assertIn("has_username", logged)
+        self.assertNotIn("admin", logged)
+        self.assertNotIn("portal-user-id-secret", logged)
+        self.assertNotIn("not-a-credential", logged)
+        self.assertNotIn(body["signature"], logged)
+        self.assertNotIn("not-a-credential", rendered)
+
 
 class PortalSSOBindCommandTests(TestCase):
     def test_bind_command_is_idempotent_and_rejects_conflicting_owner(self):
@@ -761,3 +1319,74 @@ class PortalSSOBindCommandTests(TestCase):
                 user_ref="not-a-uuid-or-username",
                 stdout=StringIO(),
             )
+
+
+class PortalSSORepairDisplayNameTests(TestCase):
+    def _isolated(self, username, nick_name, external_username, external_id, source="PORTAL"):
+        user = User.objects.create(
+            username=username,
+            nick_name=nick_name,
+            email=None,
+            password="!",
+            role="USER",
+            source=source,
+            is_active=True,
+        )
+        if source == "PORTAL":
+            UserExternalIdentity.objects.create(
+                provider="PORTAL",
+                external_user_id=external_id,
+                external_username=external_username,
+                user=user,
+            )
+        return user
+
+    def test_repair_updates_only_hash_nicks_and_is_idempotent(self):
+        isolated = self._isolated(
+            "portal_" + "ab" * 24,
+            "portal_" + "ab" * 24,
+            "repair-portal-name",
+            "repair-ext",
+        )
+        self._isolated(
+            "portal_" + "cd" * 24,
+            "already-friendly",
+            "leave-me",
+            "repair-friendly",
+        )
+        local = User.objects.create(
+            username="portal_local_copy",
+            nick_name="portal_local_copy",
+            email=None,
+            password="!",
+            role="USER",
+            source="LOCAL",
+            is_active=True,
+        )
+        preview = StringIO()
+        call_command("portal_sso_repair_display_names", stdout=preview)
+        preview_text = preview.getvalue()
+        self.assertIn("candidates=1", preview_text)
+        self.assertIn(f"user_id={isolated.id}", preview_text)
+        self.assertIn("updated=0", preview_text)
+        self.assertNotIn("repair-portal-name", preview_text)
+        self.assertNotIn("leave-me", preview_text)
+        isolated.refresh_from_db()
+        self.assertEqual(isolated.nick_name, isolated.username)
+
+        applied = StringIO()
+        call_command("portal_sso_repair_display_names", apply=True, stdout=applied)
+        applied_text = applied.getvalue()
+        self.assertIn("candidates=1", applied_text)
+        self.assertIn("updated=1", applied_text)
+        self.assertNotIn("repair-portal-name", applied_text)
+        isolated.refresh_from_db()
+        self.assertEqual(isolated.nick_name, "repair-portal-name（门户）")
+        self.assertTrue(isolated.username.startswith("portal_"))
+        local.refresh_from_db()
+        self.assertEqual(local.nick_name, local.username)
+
+        again = StringIO()
+        call_command("portal_sso_repair_display_names", stdout=again)
+        self.assertIn("candidates=0", again.getvalue())
+        self.assertIn("updated=0", again.getvalue())

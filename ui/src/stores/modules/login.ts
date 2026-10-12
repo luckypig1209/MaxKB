@@ -4,6 +4,7 @@ import LoginApi from '@/api/user/login'
 import type { LoginRequest } from '@/api/type/login'
 import useUserStore from './user'
 import { clearStoredLoginToken } from './login-session'
+import { markPortalStage, setPortalProfileTiming } from '@/utils/portal-timing'
 
 const useLoginStore = defineStore('login', {
   state: () => ({
@@ -34,21 +35,28 @@ const useLoginStore = defineStore('login', {
       })
     },
     async asyncPortalSsoLogin(ticket: string, loading?: Ref<boolean>) {
-      return LoginApi.exchangePortalSso({ ticket }, loading).then(async (ok) => {
-        this.token = ok?.data?.token
-        localStorage.setItem('token', ok?.data?.token)
-        const user = useUserStore()
-        try {
-          await user.profile(loading)
-        } catch (error) {
-          // Ticket consumption is one-time.  Do not leave a half-initialized
-          // session behind when profile/bootstrap fails after exchange.
-          this.token = ''
-          clearStoredLoginToken()
-          throw error
-        }
-        return ok?.data
-      })
+      setPortalProfileTiming(true)
+      markPortalStage('exchange_start')
+      return LoginApi.exchangePortalSso({ ticket }, loading)
+        .then(async (ok) => {
+          markPortalStage('exchange_end')
+          this.token = ok?.data?.token
+          localStorage.setItem('token', ok?.data?.token)
+          const user = useUserStore()
+          try {
+            await user.profile(loading)
+          } catch (error) {
+            // Ticket consumption is one-time.  Do not leave a half-initialized
+            // session behind when profile/bootstrap fails after exchange.
+            this.token = ''
+            clearStoredLoginToken()
+            throw error
+          }
+          return ok?.data
+        })
+        .finally(() => {
+          setPortalProfileTiming(false)
+        })
     },
     async dingCallback(code: string) {
       return LoginApi.getDingCallback(code).then((ok) => {

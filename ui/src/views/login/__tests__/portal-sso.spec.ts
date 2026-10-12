@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readPortalTicket, sanitizePortalTarget } from '../portal-sso.ts'
-import { claimPortalTicketAttempt } from '../portal-sso.ts'
+import { claimPortalTicketAttempt, portalLandingFailure, preparePortalTicket } from '../portal-sso.ts'
 import { clearStoredLoginToken } from '../../../stores/modules/login-session.ts'
 
 test('reads only a valid opaque ticket from the fragment', () => {
@@ -18,6 +18,42 @@ test('keeps portal targets inside the explicit route allow-list', () => {
   assert.equal(sanitizePortalTarget('/opportunity?next=https://evil.example'), '/opportunity')
   assert.equal(sanitizePortalTarget('//evil.example'), '/opportunity')
   assert.equal(sanitizePortalTarget(undefined), '/opportunity')
+})
+
+test('unreplaced portal placeholders are not treated as used tickets', async () => {
+  for (const value of ['${token}', 'undefined', 'null', '[object Object]']) {
+    const prepared = await preparePortalTicket(`#ticket=${value}`)
+    assert.deepEqual(prepared, { action: 'show', status: 'portal' })
+  }
+})
+
+test('a valid ticket is offered for exchange only once', async () => {
+  const previous = (globalThis as any).sessionStorage
+  const values = new Map<string, string>()
+  Object.defineProperty(globalThis, 'sessionStorage', {
+    configurable: true,
+    value: {
+      getItem: (key: string) => values.get(key) || null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    },
+  })
+  try {
+    const ticket = 'C'.repeat(43)
+    assert.deepEqual(await preparePortalTicket(`#ticket=${ticket}`), { action: 'exchange', ticket })
+    assert.deepEqual(await preparePortalTicket(`#ticket=${ticket}`), { action: 'show', status: 'ticket' })
+  } finally {
+    Object.defineProperty(globalThis, 'sessionStorage', {
+      configurable: true,
+      value: previous,
+    })
+  }
+})
+
+test('exchange failures keep an unbound account distinct from an invalid ticket', () => {
+  assert.equal(portalLandingFailure('SSO_TICKET_INVALID'), 'ticket')
+  assert.equal(portalLandingFailure('SSO_BIND_REQUIRED'), 'unbound')
+  assert.equal(portalLandingFailure('SSO_USER_DISABLED'), 'unbound')
+  assert.equal(portalLandingFailure('SSO_DISABLED'), 'config')
 })
 
 test('claims one ticket only once in the current browser session', async () => {

@@ -15,8 +15,15 @@ export const PORTAL_SSO_ALLOWED_TARGETS = new Set([
 ])
 
 const PORTAL_TICKET_PATTERN = /^[A-Za-z0-9_-]{43,512}$/
+const UNREPLACED_PORTAL_TICKETS = new Set(['${token}', 'undefined', 'null', '[object Object]'])
 const ATTEMPT_KEY_PREFIX = 'maxkb:portal-sso:attempt:'
 const inMemoryAttempts = new Set<string>()
+
+export type PortalLandingFailure = 'ticket' | 'portal' | 'config' | 'unbound' | 'unavailable'
+
+export function portalTicketPlaceholder(value: string | null): boolean {
+  return value !== null && UNREPLACED_PORTAL_TICKETS.has(value)
+}
 
 export function readPortalTicket(hash: string): string | null {
   if (!hash || !hash.startsWith('#')) return null
@@ -57,6 +64,33 @@ async function ticketFingerprint(ticket: string): Promise<string> {
     hash = Math.imul(hash, 16777619)
   }
   return (hash >>> 0).toString(16)
+}
+
+export function portalLandingFailure(code: unknown): PortalLandingFailure {
+  if (code === 'SSO_CONFIG_INVALID' || code === 'SSO_DISABLED') return 'config'
+  if (code === 'SSO_BIND_REQUIRED' || code === 'SSO_USER_DISABLED') return 'unbound'
+  if (
+    code === 'SSO_TICKET_INVALID' ||
+    code === 'SSO_INVALID_REQUEST' ||
+    code === 'SSO_TIMESTAMP_INVALID' ||
+    code === 'SSO_NONCE_REPLAY'
+  ) {
+    return 'ticket'
+  }
+  return 'unavailable'
+}
+
+export async function preparePortalTicket(
+  hash: string,
+): Promise<{ action: 'exchange'; ticket: string } | { action: 'show'; status: 'ticket' | 'portal' }> {
+  const fragment = hash?.startsWith('#') ? hash.slice(1) : ''
+  const params = new URLSearchParams(fragment)
+  const rawTicket = params.get('ticket')
+  if (portalTicketPlaceholder(rawTicket)) return { action: 'show', status: 'portal' }
+
+  const ticket = readPortalTicket(hash)
+  if (!ticket || !(await claimPortalTicketAttempt(ticket))) return { action: 'show', status: 'ticket' }
+  return { action: 'exchange', ticket }
 }
 
 /** Claim a ticket for this browser session; false means it was already tried. */

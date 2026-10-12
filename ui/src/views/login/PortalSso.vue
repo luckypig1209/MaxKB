@@ -2,7 +2,7 @@
   <login-layout>
     <LoginContainer
       :title="$t('views.login.portalSso.title')"
-      :sub-title="$t('views.login.portalSso.subtitle')"
+      :sub-title="subtitle"
       :show-security-note="false"
     >
       <div class="portal-sso-state" aria-live="polite">
@@ -25,31 +25,56 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Loading } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import LoginContainer from '@/layout/login-layout/LoginContainer.vue'
 import LoginLayout from '@/layout/login-layout/LoginLayout.vue'
 import useStore from '@/stores'
+import { markPortalStage, setPortalProfileTiming } from '@/utils/portal-timing'
 import {
-  claimPortalTicketAttempt,
-  readPortalTicket,
+  portalLandingFailure,
+  preparePortalTicket,
   sanitizePortalTarget,
 } from '@/views/login/portal-sso'
 
-type PortalSsoStatus = 'loading' | 'ticket' | 'config' | 'unbound' | 'unavailable'
+type PortalSsoStatus = 'loading' | 'ticket' | 'portal' | 'config' | 'unbound' | 'unavailable'
 
 const router = useRouter()
 const route = useRoute()
 const { login } = useStore()
 const { locale, t } = useI18n({ useScope: 'global' })
 const status = ref<PortalSsoStatus>('loading')
+const loadingSlow = ref(false)
+let slowTimer: ReturnType<typeof setTimeout> | undefined
+
+const subtitle = computed(() =>
+  status.value === 'loading' && loadingSlow.value
+    ? t('views.login.portalSso.loadingSlow')
+    : t('views.login.portalSso.subtitle'),
+)
+
+function armSlowHint() {
+  loadingSlow.value = false
+  window.clearTimeout(slowTimer)
+  slowTimer = window.setTimeout(() => {
+    if (status.value === 'loading') {
+      loadingSlow.value = true
+    }
+  }, 3000)
+}
+
+function clearSlowHint() {
+  window.clearTimeout(slowTimer)
+  slowTimer = undefined
+}
 
 const statusMessage = computed(() => {
   const key = {
     loading: 'views.login.portalSso.loading',
     ticket: 'views.login.portalSso.ticketInvalid',
+    portal: 'views.login.portalSso.ticketMissing',
     config: 'views.login.portalSso.configError',
     unbound: 'views.login.portalSso.accountUnbound',
     unavailable: 'views.login.portalSso.unavailable',
@@ -75,30 +100,20 @@ function errorCode(error: any): string | number | undefined {
 }
 
 function setFailure(error: unknown) {
-  const code = errorCode(error)
-  if (code === 'SSO_CONFIG_INVALID' || code === 'SSO_DISABLED') {
-    status.value = 'config'
-  } else if (code === 'SSO_BIND_REQUIRED' || code === 'SSO_USER_DISABLED') {
-    status.value = 'unbound'
-  } else if (
-    code === 'SSO_TICKET_INVALID' ||
-    code === 'SSO_INVALID_REQUEST' ||
-    code === 'SSO_TIMESTAMP_INVALID' ||
-    code === 'SSO_NONCE_REPLAY'
-  ) {
-    status.value = 'ticket'
-  } else {
-    status.value = 'unavailable'
-  }
+  clearSlowHint()
+  status.value = portalLandingFailure(errorCode(error))
 }
 
 async function consumeTicket() {
+  markPortalStage('landing_ready')
+  armSlowHint()
   // The fragment is captured before replacement, and the replacement happens
   // before any network request or store action can run.
   const hash = scrubLandingUrl()
-  const ticket = readPortalTicket(hash)
-  if (!ticket || !(await claimPortalTicketAttempt(ticket))) {
-    status.value = 'ticket'
+  const prepared = await preparePortalTicket(hash)
+  if (prepared.action === 'show') {
+    clearSlowHint()
+    status.value = prepared.status
     return
   }
 
@@ -107,10 +122,14 @@ async function consumeTicket() {
     // workspace, issue a normal session through the login store, then load the
     // profile before entering the protected router.
     localStorage.setItem('workspace_id', 'default')
-    const session = await login.asyncPortalSsoLogin(ticket)
+    const session = await login.asyncPortalSsoLogin(prepared.ticket)
     locale.value = localStorage.getItem('MaxKB-locale') || locale.value
+    clearSlowHint()
+    markPortalStage('route_start')
     await router.replace(sanitizePortalTarget(session?.target))
+    markPortalStage('route_end')
   } catch (error) {
+    setPortalProfileTiming(false)
     setFailure(error)
   }
 }
@@ -128,6 +147,10 @@ function returnToPortal() {
     useLocalLogin()
   }
 }
+
+onUnmounted(() => {
+  clearSlowHint()
+})
 
 onMounted(() => {
   // Keep route access explicit so a direct component mount cannot bypass the
@@ -154,6 +177,12 @@ onMounted(() => {
 .portal-sso-state__loading {
   color: var(--accent-ink);
   font-size: 28px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-sso-state__loading.is-loading {
+    animation: none;
+  }
 }
 
 .portal-sso-state__message {

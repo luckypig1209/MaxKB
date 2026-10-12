@@ -59,6 +59,7 @@ class Config(dict):
         "PORTAL_SSO_ALLOWED_CLOCK_SKEW_SECONDS": 60,
         "PORTAL_SSO_TICKET_TTL_SECONDS": 60,
         "PORTAL_SSO_AUTO_PROVISION": False,
+        "PORTAL_SSO_EXISTING_USER_POLICY": "REJECT",
         "PORTAL_SSO_DEFAULT_WORKSPACE": "default",
         "PORTAL_SSO_PORTAL_LOGIN_URL": "",
         "PORTAL_SSO_ALLOWED_TARGETS": "/home,/opportunity,/opportunity/records",

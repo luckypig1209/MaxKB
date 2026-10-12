@@ -21,6 +21,11 @@ from typing import Any
 from urllib.parse import unquote, urlsplit
 
 DEFAULT_ALLOWED_TARGETS = ("/home", "/opportunity", "/opportunity/records")
+EXISTING_USER_POLICY_REJECT = "REJECT"
+EXISTING_USER_POLICY_CREATE_NAMESPACED = "CREATE_NAMESPACED"
+EXISTING_USER_POLICIES = frozenset(
+    {EXISTING_USER_POLICY_REJECT, EXISTING_USER_POLICY_CREATE_NAMESPACED}
+)
 
 # The body is intentionally a closed schema.  Mapping/database work belongs
 # to the ticket exchange phase, but rejecting unknown fields here ensures a
@@ -80,6 +85,19 @@ def _as_non_negative_int(value: Any, *, default: int, name: str) -> int:
     return parsed
 
 
+def _existing_user_policy(value: Any) -> str:
+    """Return the closed existing-account policy. Username auto-bind is not a value."""
+
+    if value is None or value == "":
+        return EXISTING_USER_POLICY_REJECT
+    if not isinstance(value, str):
+        raise PortalSSOValidationError("portal SSO existing user policy is invalid")
+    policy = value.strip().upper()
+    if policy not in EXISTING_USER_POLICIES:
+        raise PortalSSOValidationError("portal SSO existing user policy is invalid")
+    return policy
+
+
 def _mapping_value(mapping: Mapping[str, Any], name: str, default: Any = None) -> Any:
     """Read both Config keys and explicitly-prefixed environment-style keys."""
 
@@ -121,6 +139,7 @@ class PortalSSOConfig:
     allowed_clock_skew_seconds: int = 60
     ticket_ttl_seconds: int = 60
     auto_provision: bool = False
+    existing_user_policy: str = EXISTING_USER_POLICY_REJECT
     default_workspace: str = "default"
     portal_login_url: str = ""
     allowed_targets: tuple[str, ...] = DEFAULT_ALLOWED_TARGETS
@@ -132,6 +151,8 @@ class PortalSSOConfig:
             raise PortalSSOValidationError("enabled portal SSO requires a positive ticket TTL")
         if self.enabled and not self.allowed_targets:
             raise PortalSSOValidationError("enabled portal SSO requires at least one allowed target")
+        if self.existing_user_policy not in EXISTING_USER_POLICIES:
+            raise PortalSSOValidationError("portal SSO existing user policy is invalid")
         if not self.default_workspace or not isinstance(self.default_workspace, str):
             raise PortalSSOValidationError("portal SSO default workspace must be a non-empty string")
         # Validate configured targets even when callers instantiate the
@@ -161,6 +182,9 @@ class PortalSSOConfig:
                 name="ticket TTL",
             ),
             auto_provision=_as_bool(_mapping_value(mapping, "PORTAL_SSO_AUTO_PROVISION", False), default=False),
+            existing_user_policy=_existing_user_policy(
+                _mapping_value(mapping, "PORTAL_SSO_EXISTING_USER_POLICY", EXISTING_USER_POLICY_REJECT)
+            ),
             default_workspace=str(_mapping_value(mapping, "PORTAL_SSO_DEFAULT_WORKSPACE", "default") or "default"),
             portal_login_url=str(_mapping_value(mapping, "PORTAL_SSO_PORTAL_LOGIN_URL", "") or ""),
             allowed_targets=_split_targets(_mapping_value(mapping, "PORTAL_SSO_ALLOWED_TARGETS", None)),
@@ -535,20 +559,38 @@ def _external_id_digest(external_user_id: str | None) -> str | None:
 
 
 def _audit(event: str, outcome: str, request_id: str, client_id: str | None = None,
-           user_id: str | None = None, external_user_id: str | None = None) -> None:
+           user_id: str | None = None, external_user_id: str | None = None,
+           policy: str | None = None, provision: str | None = None,
+           reason: str | None = None, field_count: int | None = None,
+           has_username: bool | None = None, has_signature: bool | None = None,
+           has_timestamp: bool | None = None) -> None:
     """Emit an audit event with no secret, ticket, token or raw identity data."""
+
+    def _flag(value: bool | None) -> str:
+        if value is None:
+            return ""
+        return "true" if value else "false"
 
     try:
         from common.utils.logger import maxkb_logger
 
         maxkb_logger.info(
-            "portal_sso event=%s outcome=%s request_id=%s client_id=%s user_id=%s external_user_id_sha256=%s",
+            "portal_sso event=%s outcome=%s request_id=%s client_id=%s user_id=%s "
+            "external_user_id_sha256=%s policy=%s provision=%s reason=%s field_count=%s "
+            "has_username=%s has_signature=%s has_timestamp=%s",
             event,
             outcome,
             request_id,
             client_id or "",
             user_id or "",
             _external_id_digest(external_user_id) or "",
+            policy or "",
+            provision or "",
+            reason or "",
+            "" if field_count is None else field_count,
+            _flag(has_username),
+            _flag(has_signature),
+            _flag(has_timestamp),
         )
     except Exception:  # noqa: BLE001, S110 - audit failure must not break authentication.
         # Audit logging must never turn a successful login into an outage.
@@ -620,7 +662,81 @@ def _identity_payload_for_ticket(payload: Mapping[str, Any]) -> dict[str, Any]:
 # timestamp with HMAC-SHA1.  BIA adapts to that request instead of changing
 # the portal.  The password field is ignored and never logged.
 LEGACY_PORTAL_FIELDS = frozenset({"mobile", "username", "password", "signature", "timestamp"})
+LEGACY_PORTAL_REQUIRED_FIELDS = frozenset({"username", "signature", "timestamp"})
+# The running portal also posts these fields.  They are not signed and must
+# not affect authentication, provisioning, or logs.
+LEGACY_PORTAL_IGNORED_FIELDS = frozenset({"autoCreate", "userId"})
+LEGACY_PORTAL_ACCEPTED_FIELDS = LEGACY_PORTAL_FIELDS | LEGACY_PORTAL_IGNORED_FIELDS
 LEGACY_PORTAL_MAX_SKEW_SECONDS = 60
+
+
+def _mapping_fields(data):
+    if not hasattr(data, "keys"):
+        return None
+    try:
+        return set(data)
+    except TypeError:
+        return None
+
+
+def _legacy_field_meta(fields: set[str] | None) -> dict[str, Any]:
+    present = fields or set()
+    return {
+        "field_count": len(present),
+        "has_username": "username" in present,
+        "has_signature": "signature" in present,
+        "has_timestamp": "timestamp" in present,
+    }
+
+
+def classify_legacy_mapping(data):
+    """Identify a portal legacy body without using it as a v2 request.
+
+    Returns ``(protocol, payload, reason, meta)``.  ``protocol`` is ``legacy``,
+    ``v2``, or ``invalid``.  Ignored portal fields are dropped.  A legacy
+    attempt never becomes a v2 request.
+    """
+
+    fields = _mapping_fields(data)
+    meta = _legacy_field_meta(fields)
+    if fields is None or not fields:
+        return "invalid", None, "legacy_not_mapping", meta
+    if "external_user_id" in fields and "signature" not in fields:
+        return "v2", None, "v2_recognized", meta
+    legacy_attempt = "signature" in fields or (
+        {"username", "timestamp"} <= fields and "external_user_id" not in fields
+    )
+    if not legacy_attempt:
+        return "v2", None, "v2_recognized", meta
+    if fields - LEGACY_PORTAL_ACCEPTED_FIELDS:
+        return "invalid", None, "legacy_unknown_fields", meta
+    if not LEGACY_PORTAL_REQUIRED_FIELDS <= fields:
+        return "invalid", None, "legacy_missing_fields", meta
+    payload = {}
+    for field in LEGACY_PORTAL_FIELDS:
+        if field not in data:
+            continue
+        value = data[field]
+        if isinstance(value, (list, tuple)):
+            value = value[-1] if value else None
+        payload[field] = value
+    username = payload.get("username")
+    if not isinstance(username, str):
+        return "invalid", None, "legacy_username_type", meta
+    if username.strip() == "":
+        return "invalid", None, "legacy_username_blank", meta
+    if username != username.strip():
+        return "invalid", None, "legacy_username_whitespace", meta
+    return "legacy", payload, "legacy_recognized", meta
+
+
+def normalize_legacy_portal_payload(data):
+    """Copy a recognized legacy body into a plain dict, or return None."""
+
+    protocol, payload, _reason, _meta = classify_legacy_mapping(data)
+    if protocol != "legacy":
+        return None
+    return payload
 
 
 def legacy_portal_signature(client_secret: str, client_id: str, timestamp: str) -> str:
@@ -820,17 +936,23 @@ def create_legacy_portal_ticket(
         _audit("ticket", "rate_limited", correlation_id, config.client_id)
         raise PortalSSOServiceError(PortalSSOErrorCode.RATE_LIMITED)
     if not isinstance(payload, Mapping) or set(payload) - LEGACY_PORTAL_FIELDS:
-        _audit("ticket", "invalid_request", correlation_id, config.client_id)
+        _audit("ticket", "invalid_request", correlation_id, config.client_id, reason="legacy_unknown_fields")
         raise PortalSSOServiceError(PortalSSOErrorCode.INVALID_REQUEST)
     username = payload.get("username")
-    if not isinstance(username, str) or not username.strip() or username != username.strip():
-        _audit("ticket", "invalid_request", correlation_id, config.client_id)
+    if not isinstance(username, str):
+        _audit("ticket", "invalid_request", correlation_id, config.client_id, reason="legacy_username_type")
+        raise PortalSSOServiceError(PortalSSOErrorCode.INVALID_REQUEST)
+    if username.strip() == "":
+        _audit("ticket", "invalid_request", correlation_id, config.client_id, reason="legacy_username_blank")
+        raise PortalSSOServiceError(PortalSSOErrorCode.INVALID_REQUEST)
+    if username != username.strip():
+        _audit("ticket", "invalid_request", correlation_id, config.client_id, reason="legacy_username_whitespace")
         raise PortalSSOServiceError(PortalSSOErrorCode.INVALID_REQUEST)
     if len(username) > PORTAL_SSO_FIELD_MAX_LENGTHS["username"]:
-        _audit("ticket", "invalid_request", correlation_id, config.client_id)
+        _audit("ticket", "invalid_request", correlation_id, config.client_id, reason="legacy_username_type")
         raise PortalSSOServiceError(PortalSSOErrorCode.INVALID_REQUEST)
     if any(ord(char) < 0x20 or ord(char) == 0x7F for char in username):
-        _audit("ticket", "invalid_request", correlation_id, config.client_id)
+        _audit("ticket", "invalid_request", correlation_id, config.client_id, reason="legacy_username_type")
         raise PortalSSOServiceError(PortalSSOErrorCode.INVALID_REQUEST)
 
     try:
@@ -881,8 +1003,75 @@ def _safe_ticket_text(ticket: Any) -> str:
     return ticket
 
 
-def _resolve_portal_user(payload: Mapping[str, Any], config: PortalSSOConfig, *, provider: str = "PORTAL"):
-    """Resolve an existing mapping or provision a minimum-role user."""
+def _namespaced_account_name(provider: str, external_id: str) -> str:
+    digest = hashlib.sha256(f"{provider}\n{external_id}".encode("utf-8")).hexdigest()[:48]
+    return f"portal_{digest}"
+
+
+_PORTAL_NICK_MAX = 150
+_PORTAL_NICK_LABEL = "（门户）"
+
+
+def portal_display_digest(external_id: str) -> str:
+    """Short stable label used only to disambiguate display names."""
+
+    return hashlib.sha256(external_id.encode("utf-8")).hexdigest()[:6]
+
+
+def portal_display_name(external_username: str | None, external_id: str, *, disambiguate: bool = False) -> str:
+    """Return a friendly nick. The internal ``portal_<hash>`` username stays unchanged."""
+
+    raw = external_username.strip() if isinstance(external_username, str) else ""
+    digest = portal_display_digest(external_id or "portal")
+    if not raw:
+        return f"门户用户·{digest}"[:_PORTAL_NICK_MAX]
+    suffix = f"（门户·{digest}）" if disambiguate else _PORTAL_NICK_LABEL
+    room = _PORTAL_NICK_MAX - len(suffix)
+    visible = raw[:room] if room > 0 else ""
+    return f"{visible}{suffix}"[:_PORTAL_NICK_MAX]
+
+
+def available_portal_display_name(external_username: str | None, external_id: str, *, exclude_user_id=None) -> str:
+    from users.models import User
+
+    primary = portal_display_name(external_username, external_id)
+    taken = User.objects.filter(nick_name=primary)
+    if exclude_user_id is not None:
+        taken = taken.exclude(id=exclude_user_id)
+    if not taken.exists():
+        return primary
+    return portal_display_name(external_username, external_id, disambiguate=True)
+
+
+def _active_identity(identity, provider: str, external_id: str):
+    from users.models import User
+
+    if identity is None or identity.provider != provider or identity.external_user_id != external_id:
+        raise PortalSSOServiceError(PortalSSOErrorCode.BIND_REQUIRED)
+    try:
+        user = identity.user
+    except User.DoesNotExist as exc:
+        raise PortalSSOServiceError(PortalSSOErrorCode.USER_DISABLED) from exc
+    from users.models.external_identity import UserExternalIdentity
+
+    if identity.status != UserExternalIdentity.Status.ACTIVE or not user.is_active:
+        raise PortalSSOServiceError(PortalSSOErrorCode.USER_DISABLED)
+    return user, identity
+
+
+def _resolve_portal_user(
+    payload: Mapping[str, Any],
+    config: PortalSSOConfig,
+    *,
+    provider: str = "PORTAL",
+    request_id: str | None = None,
+):
+    """Resolve an explicit mapping, or provision an isolated ordinary user.
+
+    A portal username is never attached to an existing local account.  When
+    auto-provision is on and ``CREATE_NAMESPACED`` is selected, a username,
+    nickname, or email collision creates ``portal_<hash>`` instead.
+    """
 
     import secrets
 
@@ -901,12 +1090,7 @@ def _resolve_portal_user(payload: Mapping[str, Any], config: PortalSSOConfig, *,
         .first()
     )
     if identity is not None:
-        try:
-            user = identity.user
-        except User.DoesNotExist as exc:
-            raise PortalSSOServiceError(PortalSSOErrorCode.USER_DISABLED) from exc
-        if identity.status != UserExternalIdentity.Status.ACTIVE or not user.is_active:
-            raise PortalSSOServiceError(PortalSSOErrorCode.USER_DISABLED)
+        user, identity = _active_identity(identity, provider, external_id)
         identity.external_username = payload.get("username") or identity.external_username
         identity.display_name = payload.get("display_name") or identity.display_name
         identity.email = payload.get("email") or identity.email
@@ -922,6 +1106,16 @@ def _resolve_portal_user(payload: Mapping[str, Any], config: PortalSSOConfig, *,
                 "update_time",
             ]
         )
+        _audit(
+            "provision",
+            "reused",
+            request_id or "",
+            config.client_id,
+            user_id=str(user.id),
+            external_user_id=external_id,
+            policy=config.existing_user_policy,
+            provision="reused",
+        )
         return user, identity
 
     if not config.auto_provision:
@@ -930,26 +1124,44 @@ def _resolve_portal_user(payload: Mapping[str, Any], config: PortalSSOConfig, *,
     username = (payload.get("username") or "").strip()
     email = payload.get("email") or None
     display_name = (payload.get("display_name") or "").strip()
-    # Only explicit identity values can collide with a local account.  The
-    # generated fallback names are namespaced and deterministic by external ID.
-    if username or email or display_name:
-        conflict_query = Q()
-        if username:
-            conflict_query |= Q(username=username)
-        if email:
-            conflict_query |= Q(email=email)
-        if display_name:
-            conflict_query |= Q(nick_name=display_name)
-        if User.objects.filter(conflict_query).exists():
+    conflict_query = Q()
+    has_explicit_identity = False
+    if username:
+        conflict_query |= Q(username=username)
+        has_explicit_identity = True
+    if email:
+        conflict_query |= Q(email=email)
+        has_explicit_identity = True
+    if display_name:
+        conflict_query |= Q(nick_name=display_name)
+        has_explicit_identity = True
+    conflict = has_explicit_identity and User.objects.filter(conflict_query).exists()
+    if conflict and config.existing_user_policy != EXISTING_USER_POLICY_CREATE_NAMESPACED:
+        raise PortalSSOServiceError(PortalSSOErrorCode.BIND_REQUIRED)
+
+    portal_username = username
+    provision = "created"
+    if config.existing_user_policy == EXISTING_USER_POLICY_CREATE_NAMESPACED:
+        if conflict:
+            username = _namespaced_account_name(provider, external_id)
+            display_name = available_portal_display_name(portal_username or None, external_id)
+            email = None
+            provision = "created_namespaced"
+        elif not portal_username:
+            username = _namespaced_account_name(provider, external_id)
+            display_name = available_portal_display_name(None, external_id)
+    else:
+        generated_username = f"portal_{hashlib.sha256(external_id.encode('utf-8')).hexdigest()[:48]}"
+        if not username:
+            username = generated_username
+            display_name = available_portal_display_name(None, external_id)
+        elif not display_name:
+            display_name = username
+        # A generated collision stays unbound.  It must not attach this portal
+        # identity to the account that already owns the generated name.
+        if User.objects.filter(Q(username=username) | Q(nick_name=display_name)).exists():
             raise PortalSSOServiceError(PortalSSOErrorCode.BIND_REQUIRED)
 
-    generated_username = f"portal_{hashlib.sha256(external_id.encode('utf-8')).hexdigest()[:48]}"
-    if not username:
-        username = generated_username
-    if not display_name:
-        display_name = username
-    # A generated collision is treated as a binding problem rather than
-    # silently attaching the external identity to an existing account.
     if User.objects.filter(Q(username=username) | Q(nick_name=display_name)).exists():
         raise PortalSSOServiceError(PortalSSOErrorCode.BIND_REQUIRED)
 
@@ -970,17 +1182,32 @@ def _resolve_portal_user(payload: Mapping[str, Any], config: PortalSSOConfig, *,
                 provider=provider,
                 external_user_id=external_id,
                 user=user,
-                external_username=payload.get("username") or "",
-                display_name=payload.get("display_name") or "",
+                external_username=(payload.get("username") or "")[:150],
+                display_name=(payload.get("display_name") or "")[:150],
                 email=email,
                 department_code=payload.get("department_code") or "",
                 status=UserExternalIdentity.Status.ACTIVE,
                 last_login_at=now,
                 meta={},
             )
-    except IntegrityError as exc:
-        # A concurrent bind/provision race is deliberately not auto-bound.
-        raise PortalSSOServiceError(PortalSSOErrorCode.BIND_REQUIRED) from exc
+    except IntegrityError:
+        recovered = (
+            UserExternalIdentity.objects.select_related("user")
+            .filter(provider=provider, external_user_id=external_id)
+            .first()
+        )
+        user, identity = _active_identity(recovered, provider, external_id)
+        provision = "reused"
+    _audit(
+        "provision",
+        provision,
+        request_id or "",
+        config.client_id,
+        user_id=str(user.id),
+        external_user_id=external_id,
+        policy=config.existing_user_policy,
+        provision=provision,
+    )
     return user, identity
 
 
@@ -1030,7 +1257,9 @@ def exchange_portal_ticket(
         raise PortalSSOServiceError(PortalSSOErrorCode.TICKET_INVALID)
 
     try:
-        user, _identity = _resolve_portal_user(validated, config, provider=provider)
+        user, _identity = _resolve_portal_user(
+            validated, config, provider=provider, request_id=correlation_id
+        )
     except PortalSSOServiceError as exc:
         _audit(
             "exchange",
@@ -1051,6 +1280,7 @@ def exchange_portal_ticket(
         config.client_id,
         user_id=str(user.id),
         external_user_id=validated.get("external_user_id"),
+        policy=config.existing_user_policy,
     )
     return {"token": token_data["token"], "target": target}, file_token
 

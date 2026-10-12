@@ -1,15 +1,20 @@
 """Anonymous portal SSO ticket and exchange endpoints."""
 
+import json
+from collections.abc import Mapping
+
 from common import result
 from common.exception.app_exception import AppApiException
 from maxkb.const import CONFIG
+from rest_framework import serializers
 from rest_framework.request import Request
 from rest_framework.views import APIView
 from users.serializers.portal_sso import PortalTicketExchangeSerializer, PortalTicketRequestSerializer
 from users.services.portal_sso import (
-    LEGACY_PORTAL_FIELDS,
+    PortalSSOErrorCode,
     PortalSSOServiceError,
     PortalSSOValidationError,
+    classify_legacy_mapping,
     create_legacy_portal_ticket,
     create_portal_ticket,
     exchange_portal_ticket,
@@ -71,14 +76,81 @@ def _set_file_auth_cookie(response, request: Request, file_token: str):
     return response
 
 
-def _is_legacy_portal_body(data) -> bool:
-    if not hasattr(data, "keys"):
-        return False
+def _json_object(raw):
+    if not isinstance(raw, (bytes, str)) or not raw:
+        return None
     try:
-        fields = set(data)
-    except TypeError:
-        return False
-    return fields <= LEGACY_PORTAL_FIELDS and {"username", "signature", "timestamp"} <= fields
+        text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+        parsed = json.loads(text)
+    except (UnicodeError, json.JSONDecodeError, ValueError, TypeError):
+        return None
+    return parsed if isinstance(parsed, Mapping) else None
+
+
+def _request_body(request: Request):
+    """Read the raw body before ``request.data`` consumes the stream."""
+
+    try:
+        return request.body
+    except Exception:
+        return None
+
+
+def classify_portal_request(request: Request):
+    """Return ``(protocol, payload, reason, meta)`` for one ticket request.
+
+    JSON is preferred from ``request.data``.  A raw body captured first is
+    used only when the parsed value is not already a legacy body.  A legacy
+    attempt does not fall through to the header-signed protocol.
+    """
+
+    raw = _request_body(request)
+    try:
+        data = request.data
+    except Exception:
+        data = None
+    protocol, payload, reason, meta = classify_legacy_mapping(data)
+    if protocol == "legacy":
+        return protocol, payload, reason, meta
+    parsed = _json_object(raw)
+    if parsed is not None:
+        raw_protocol, raw_payload, raw_reason, raw_meta = classify_legacy_mapping(parsed)
+        if raw_protocol == "legacy" or protocol != "v2":
+            return raw_protocol, raw_payload, raw_reason, raw_meta
+    return protocol, payload, reason, meta
+
+
+def _log_portal_classify(request: Request, config, reason: str, meta: Mapping) -> None:
+    try:
+        from common.utils.logger import maxkb_logger
+
+        maxkb_logger.info(
+            "portal_sso event=ticket outcome=classify request_id=%s client_id=%s reason=%s "
+            "field_count=%s has_username=%s has_signature=%s has_timestamp=%s",
+            _request_id(request) or "",
+            getattr(config, "client_id", "") or "",
+            reason,
+            meta.get("field_count", ""),
+            "true" if meta.get("has_username") else "false",
+            "true" if meta.get("has_signature") else "false",
+            "true" if meta.get("has_timestamp") else "false",
+        )
+    except Exception:
+        return None
+
+
+def _log_portal_sso_failure(request: Request, stage: str, exc: Exception) -> None:
+    try:
+        from common.utils.logger import maxkb_logger
+
+        maxkb_logger.error(
+            "portal_sso event=ticket outcome=unavailable request_id=%s stage=%s error_type=%s",
+            _request_id(request),
+            stage,
+            type(exc).__name__,
+        )
+    except Exception:
+        return None
 
 
 class PortalTicketView(APIView):
@@ -89,38 +161,49 @@ class PortalTicketView(APIView):
     """
 
     def post(self, request: Request):
+        try:
+            return self._post(request)
+        except AppApiException:
+            raise
+        except PortalSSOServiceError as exc:
+            raise _service_exception(exc) from exc
+        except serializers.ValidationError as exc:
+            raise _service_exception(PortalSSOServiceError(PortalSSOErrorCode.INVALID_REQUEST)) from exc
+        except Exception as exc:
+            _log_portal_sso_failure(request, "ticket_store", exc)
+            raise _service_exception(PortalSSOServiceError(PortalSSOErrorCode.UNAVAILABLE)) from exc
+
+    def _post(self, request: Request):
         config = _config()
-        if _is_legacy_portal_body(request.data):
-            try:
-                ticket_data = create_legacy_portal_ticket(
-                    request.data,
-                    config=config,
-                    request_id=_request_id(request),
-                    rate_limit_subject=_rate_limit_subject(request),
-                )
-            except PortalSSOServiceError as exc:
-                raise _service_exception(exc) from exc
+        protocol, legacy_payload, reason, meta = classify_portal_request(request)
+        _log_portal_classify(request, config, reason, meta)
+        if protocol == "legacy":
+            ticket_data = create_legacy_portal_ticket(
+                legacy_payload,
+                config=config,
+                request_id=_request_id(request),
+                rate_limit_subject=_rate_limit_subject(request),
+            )
             return result.success(ticket_data)
+        if protocol != "v2":
+            raise _service_exception(PortalSSOServiceError(PortalSSOErrorCode.INVALID_REQUEST))
         serializer = PortalTicketRequestSerializer(data=request.data, context={"config": config})
         serializer.is_valid(raise_exception=True)
         client_id = request.META.get("HTTP_X_BIA_CLIENT_ID", "")
         timestamp = request.META.get("HTTP_X_BIA_TIMESTAMP", "")
         nonce = request.META.get("HTTP_X_BIA_NONCE", "")
         signature = request.META.get("HTTP_X_BIA_SIGNATURE", "")
-        try:
-            ticket_data = create_portal_ticket(
-                serializer.validated_data,
-                config=config,
-                client_id=client_id,
-                timestamp=timestamp,
-                nonce=nonce,
-                signature=signature,
-                path=request.path,
-                request_id=_request_id(request),
-                rate_limit_subject=_rate_limit_subject(request),
-            )
-        except PortalSSOServiceError as exc:
-            raise _service_exception(exc) from exc
+        ticket_data = create_portal_ticket(
+            serializer.validated_data,
+            config=config,
+            client_id=client_id,
+            timestamp=timestamp,
+            nonce=nonce,
+            signature=signature,
+            path=request.path,
+            request_id=_request_id(request),
+            rate_limit_subject=_rate_limit_subject(request),
+        )
         return result.success(ticket_data)
 
 
@@ -128,18 +211,28 @@ class PortalTicketExchangeView(APIView):
     """Consume an opaque one-time ticket and issue a normal MaxKB session."""
 
     def post(self, request: Request):
+        try:
+            return self._post(request)
+        except AppApiException:
+            raise
+        except PortalSSOServiceError as exc:
+            raise _service_exception(exc) from exc
+        except serializers.ValidationError as exc:
+            raise _service_exception(PortalSSOServiceError(PortalSSOErrorCode.TICKET_INVALID)) from exc
+        except Exception as exc:
+            _log_portal_sso_failure(request, "ticket_store", exc)
+            raise _service_exception(PortalSSOServiceError(PortalSSOErrorCode.UNAVAILABLE)) from exc
+
+    def _post(self, request: Request):
         config = _config()
         serializer = PortalTicketExchangeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        try:
-            token_data, file_token = exchange_portal_ticket(
-                serializer.validated_data["ticket"],
-                config=config,
-                request_id=_request_id(request),
-                rate_limit_subject=_rate_limit_subject(request),
-            )
-        except PortalSSOServiceError as exc:
-            raise _service_exception(exc) from exc
+        token_data, file_token = exchange_portal_ticket(
+            serializer.validated_data["ticket"],
+            config=config,
+            request_id=_request_id(request),
+            rate_limit_subject=_rate_limit_subject(request),
+        )
         response = result.success(token_data)
         return _set_file_auth_cookie(response, request, file_token)
 
