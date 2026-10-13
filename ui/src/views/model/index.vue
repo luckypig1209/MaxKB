@@ -61,6 +61,13 @@
             </el-select>
           </div>
           <el-button
+            v-if="!isShared && apiType === 'workspace' && permissionPrecise.create()"
+            class="ml-16"
+            @click="zhiyunRef?.open()"
+          >
+            {{ $t('views.model.zhiyun.connect') }}
+          </el-button>
+          <el-button
             v-if="!isShared && permissionPrecise.create()"
             class="ml-16"
             type="primary"
@@ -101,6 +108,7 @@
       </div>
     </ContentContainer>
 
+    <ZhiyunConnectDialog ref="zhiyunRef" @synced="list_model" v-if="!isShared" />
     <CreateModelDialog
       ref="createModelRef"
       @submit="list_model"
@@ -124,6 +132,7 @@ import ProviderComponent from '@/views/model/component/Provider.vue'
 import {splitArray} from '@/utils/array'
 import {modelTypeList, allObj} from '@/views/model/component/data'
 import CreateModelDialog from '@/views/model/component/CreateModelDialog.vue'
+import ZhiyunConnectDialog from '@/views/model/component/ZhiyunConnectDialog.vue'
 import SelectProviderDialog from '@/views/model/component/SelectProviderDialog.vue'
 import {loadSharedApi} from '@/utils/dynamics-api/shared-api'
 import useStore from '@/stores'
@@ -182,6 +191,7 @@ const model_split_list = computed(() => {
   return splitArray(model_list.value, 2)
 })
 const createModelRef = ref<InstanceType<typeof CreateModelDialog>>()
+const zhiyunRef = ref<InstanceType<typeof ZhiyunConnectDialog>>()
 const selectProviderRef = ref<InstanceType<typeof SelectProviderDialog>>()
 
 const clickListHandle = (item: Provider) => {

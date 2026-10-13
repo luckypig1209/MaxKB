@@ -21,6 +21,14 @@ from common.utils.common import query_params_to_single_dict
 from models_provider.api.model import ModelCreateAPI, GetModelApi, ModelEditApi, ModelListResponse, DefaultModelResponse
 from models_provider.api.provide import ProvideApi
 from models_provider.models import Model
+from models_provider.constants.model_provider_constants import ModelProvideConstants
+from models_provider.impl.zhiyun_model_provider.sync import (
+    list_workspace_base_models,
+    parse_connect_body,
+    preview_zhiyun_models,
+    redact_request_details,
+    sync_zhiyun_models,
+)
 from models_provider.serializers.model_serializer import ModelSerializer, \
     WorkspaceSharedModelSerializer
 from system_manage.views import encryption_str
@@ -312,3 +320,44 @@ class ModelList(APIView):
                 data={**query_params_to_single_dict(request.query_params), 'user_id': str(request.user.id)}).model_list(
                 workspace_id=workspace_id,
                 with_valid=True))
+
+
+class ZhiyunBaseModels(APIView):
+    authentication_classes = [TokenAuth]
+
+    @has_permissions(PermissionConstants.MODEL_READ.get_workspace_permission(),
+                     PermissionConstants.MODEL_EDIT.get_workspace_permission_workspace_manage_role(),
+                     RoleConstants.WORKSPACE_MANAGE.get_workspace_role(), RoleConstants.USER.get_workspace_role())
+    def get(self, request: Request, workspace_id: str):
+        model_type = str(request.query_params.get("model_type") or "").strip()
+        model_id = str(request.query_params.get("model_id") or "").strip() or None
+        options = list_workspace_base_models(workspace_id, model_type, model_id)
+        if options is None:
+            options = ModelProvideConstants.model_zhiyun_provider.value.get_model_list(model_type)
+        return result.success(options)
+
+
+class ZhiyunCatalog(APIView):
+    authentication_classes = [TokenAuth]
+
+    @has_permissions(PermissionConstants.MODEL_CREATE.get_workspace_permission(),
+                     PermissionConstants.MODEL_EDIT.get_workspace_permission_workspace_manage_role(),
+                     RoleConstants.WORKSPACE_MANAGE.get_workspace_role(), RoleConstants.USER.get_workspace_role())
+    @log(menu='model', operate='获取智云模型', get_details=redact_request_details)
+    def post(self, request: Request, workspace_id: str):
+        api_base, api_key, _model_ids, _model_types = parse_connect_body(request.data)
+        return result.success(preview_zhiyun_models(api_base, api_key))
+
+
+class ZhiyunSync(APIView):
+    authentication_classes = [TokenAuth]
+
+    @has_permissions(PermissionConstants.MODEL_CREATE.get_workspace_permission(),
+                     PermissionConstants.MODEL_EDIT.get_workspace_permission_workspace_manage_role(),
+                     RoleConstants.WORKSPACE_MANAGE.get_workspace_role(), RoleConstants.USER.get_workspace_role())
+    @log(menu='model', operate='同步智云模型', get_details=redact_request_details)
+    def post(self, request: Request, workspace_id: str):
+        api_base, api_key, model_ids, model_types = parse_connect_body(request.data, require_selection=True)
+        return result.success(
+            sync_zhiyun_models(workspace_id, request.user.id, api_base, api_key, model_ids, model_types)
+        )

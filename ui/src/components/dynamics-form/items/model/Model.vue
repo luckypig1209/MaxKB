@@ -24,7 +24,7 @@
           <el-space :size="8">
             <span
               :innerHTML="relatedObject(providerList, providerName, 'provider')?.icon"
-              class="select-model-icon"
+              aria-hidden="true" class="select-model-icon"
               style="margin-top: -7px"
             >
             </span>
@@ -35,7 +35,7 @@
       <template #label="{ label, value }">
         <el-space :size="8" v-if="value">
           <span
-            class="select-model-icon"
+            aria-hidden="true" class="select-model-icon"
             :innerHTML="relatedObject(providerList, getModelProvider(value), 'provider')?.icon"
           >
           </span>
@@ -56,7 +56,7 @@
 import { ref, computed } from 'vue'
 import { groupBy, flatMap } from 'lodash'
 import SelectHeader from '@/components/dynamics-form/items/common/SelectHeader.vue'
-import { relatedObject } from '@/utils/array'
+import { relatedObject, orderProviderGroups } from '@/utils/array'
 import type { FormField } from '../../type'
 import { providerList } from './provider-data'
 import AIModeParamSettingDialog from '@/views/application/component/AIModeParamSettingDialog.vue'
@@ -83,7 +83,7 @@ const model_value = computed({
 
 const groupedOptions = computed(() => {
   const list = (props.formField.attrs?.provider_list as any[]) || []
-  return groupBy(list, 'provider')
+  return orderProviderGroups(groupBy(list, 'provider'))
 })
 
 const getModelProvider = computed(() => {

@@ -78,7 +78,7 @@
             <el-space :size="8">
               <span
                 :innerHTML="relatedObject(providerOptions, providerName, 'provider')?.icon"
-                class="select-model-icon"
+                aria-hidden="true" class="select-model-icon"
                 style="margin-top: -7px"
               ></span>
               <span>{{ item.name }}</span>
@@ -88,7 +88,7 @@
         <template #label="{ label, value }">
           <el-space :size="8" v-if="value?.model_id">
             <span
-              class="select-model-icon"
+              aria-hidden="true" class="select-model-icon"
               :innerHTML="
                 relatedObject(providerOptions, getModelInfo(value.model_id)?.provider, 'provider')
                   ?.icon
@@ -116,7 +116,7 @@ import { modelTypeList } from '@/views/model/component/data'
 import AIModeParamSettingDialog from '@/views/application/component/AIModeParamSettingDialog.vue'
 import { groupBy } from 'lodash'
 import { providerList as providerOptions } from '../../items/model/provider-data'
-import { relatedObject } from '@/utils/array'
+import { relatedObject, orderProviderGroups } from '@/utils/array'
 
 const getSelectModelList = inject('getSelectModelList') as Function
 const getModelParamsForm = inject('getModelParamsForm') as Function
@@ -163,7 +163,7 @@ const selectedIds = computed({
 const selectedModelsOptions = computed(() => {
   const ids = (formValue.value.provider_list || []).map((p: any) => p.model_id)
   const filtered = rawModelOptions.value.filter((m: any) => ids.includes(m.id))
-  return groupBy(filtered, 'provider')
+  return orderProviderGroups(groupBy(filtered, 'provider'))
 })
 
 function fetchDefaultParams(modelId: string) {
@@ -215,7 +215,7 @@ const fetchModelByType = (type: string) => {
   getSelectModelList({ model_type: type }).then((res: any) => {
     rawModelOptions.value = res?.data || []
 
-    groupedModelOptions.value = groupBy(res?.data, 'provider')
+    groupedModelOptions.value = orderProviderGroups(groupBy(res?.data, 'provider'))
   })
 }
 

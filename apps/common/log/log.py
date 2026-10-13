@@ -8,7 +8,52 @@
 """
 from qianfan.utils.utils import get_ip_address
 
+from common.utils.logger import maxkb_logger
 from system_manage.models.log_management import Log
+
+REDACTED = "***"
+SENSITIVE_FIELD_NAMES = {
+    "api_key",
+    "apikey",
+    "authorization",
+    "token",
+    "password",
+    "secret",
+    "re_password",
+}
+
+
+def _is_sensitive_field(name):
+    return str(name).replace("-", "_").strip().lower() in SENSITIVE_FIELD_NAMES
+
+
+def redact_sensitive(value):
+    try:
+        return _redact_sensitive(value)
+    except Exception:
+        return REDACTED
+
+
+def _redact_sensitive(value):
+    if isinstance(value, dict):
+        safe = {}
+        for key, item in value.items():
+            if _is_sensitive_field(key):
+                safe[key] = REDACTED
+            else:
+                safe[key] = _redact_sensitive(item)
+        return safe
+    if isinstance(value, (list, tuple)):
+        return [_redact_sensitive(item) for item in value]
+    return value
+
+
+def _plain_mapping(value):
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return {key: value[key] for key in list(value)}
+    return value
 
 
 def _get_ip_address(request):
@@ -50,23 +95,14 @@ def _get_user(request):
 
 
 def _get_details(request):
-    path = request.path
-    body = request.data
-
-    sensitive_fields = {'password', 're_password'}
-
-    body_copy = dict(body) if hasattr(body, 'items') else body
-
-    if isinstance(body_copy, dict):
-        for field in sensitive_fields:
-            body_copy.pop(field, None)
-
-    query = request.query_params
-    return {
-        'path': path,
-        'body': body_copy,
-        'query': query
-    }
+    try:
+        return {
+            'path': getattr(request, 'path', ''),
+            'body': redact_sensitive(_plain_mapping(getattr(request, 'data', None))),
+            'query': redact_sensitive(_plain_mapping(getattr(request, 'query_params', None))),
+        }
+    except Exception:
+        return {'path': getattr(request, 'path', ''), 'body': REDACTED, 'query': REDACTED}
 
 
 def _get_workspace_id(request, kwargs):
@@ -102,16 +138,18 @@ def log(menu: str, operate, get_user=_get_user, get_ip_address=_get_ip_address, 
                 status = 500
                 raise e
             finally:
-                ip = get_ip_address(request)
-                user = get_user(request)
-                details = get_details(request)
-                workspace_id = get_workspace_id(request, kwargs)
-                _operate = operate
-                if callable(operate):
-                    _operate = operate(request)
-                # 插入审计日志
-                Log(menu=menu, operate=_operate, user=user, status=status, ip_address=ip, details=details,
-                    operation_object=operation_object, workspace_id=workspace_id).save()
+                try:
+                    ip = get_ip_address(request)
+                    user = get_user(request)
+                    details = get_details(request)
+                    workspace_id = get_workspace_id(request, kwargs)
+                    _operate = operate
+                    if callable(operate):
+                        _operate = operate(request)
+                    Log(menu=menu, operate=_operate, user=user, status=status, ip_address=ip, details=details,
+                        operation_object=operation_object, workspace_id=workspace_id).save()
+                except Exception as exc:
+                    maxkb_logger.warning("audit_log_failed error_type=%s", type(exc).__name__)
 
         return run
 

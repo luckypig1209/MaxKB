@@ -148,6 +148,24 @@ const deleteModel: (model_id: string, loading?: Ref<boolean>) => Promise<Result<
 ) => {
   return del(`${prefix.value}/model/${model_id}`, undefined, {}, loading)
 }
+const listZhiyunBaseModels = (
+  model_type: string,
+  model_id?: string,
+  loading?: Ref<boolean>,
+) => {
+  const params: { model_type: string; model_id?: string } = { model_type }
+  if (model_id) params.model_id = model_id
+  return get(`${prefix.value}/model/zhiyun/base_models`, params, loading)
+}
+const previewZhiyun = (data: { api_key: string }, loading?: Ref<boolean>) => {
+  return post(`${prefix.value}/model/zhiyun/catalog`, data, {}, loading)
+}
+const syncZhiyun = (
+  data: { api_key: string; model_ids: string[]; model_types?: Record<string, string> },
+  loading?: Ref<boolean>,
+) => {
+  return post(`${prefix.value}/model/zhiyun/sync`, data, {}, loading)
+}
 export default {
   getModelList,
   createModel,
@@ -159,4 +177,7 @@ export default {
   getModelParamsForm,
   updateModelParamsForm,
   getSelectModelList,
+  listZhiyunBaseModels,
+  previewZhiyun,
+  syncZhiyun,
 }

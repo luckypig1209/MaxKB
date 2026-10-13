@@ -74,3 +74,21 @@ export function uniqueArray(array: Array<any>, key: string) {
     return !map.has(item[key]) && map.set(item[key], 1)
   })
 }
+
+export const ZHIYUN_PROVIDER_ID = 'model_zhiyun_provider'
+
+export function pinZhiyunFirst<T>(items: readonly T[], keyOf: (item: T) => string): T[] {
+  const list = [...items]
+  const index = list.findIndex((item) => keyOf(item) === ZHIYUN_PROVIDER_ID)
+  if (index > 0) {
+    const [pinned] = list.splice(index, 1)
+    list.unshift(pinned)
+  }
+  return list
+}
+
+export function orderProviderGroups<T>(groups: Record<string, T> | null | undefined): Record<string, T> {
+  const source = groups || {}
+  const keys = pinZhiyunFirst(Object.keys(source), (key) => key)
+  return Object.fromEntries(keys.map((key) => [key, source[key]]))
+}

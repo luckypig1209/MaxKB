@@ -123,6 +123,7 @@ import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import type { Provider, BaseModel, Model } from '@/api/type/model'
 import type { Dict, KeyValue } from '@/api/type/common'
+import modelApi from '@/api/model/model'
 import ProviderApi from '@/api/model/provider'
 import type { FormField } from '@/components/dynamics-form/type'
 import DynamicsForm from '@/components/dynamics-form/index.vue'
@@ -207,17 +208,31 @@ const getModelForm = (model_name: string) => {
     })
   }
 }
+const keepCurrentBaseModel = (items: Array<BaseModel>) => {
+  const current = base_form_data.value.model_name
+  if (current && !items.some((item) => item.name === current)) {
+    return [{ name: current, desc: '', model_type: base_form_data.value.model_type }, ...items]
+  }
+  return items
+}
 const list_base_model = (model_type: any, change?: boolean) => {
   if (change) {
     base_form_data.value.model_name = ''
   }
-  if (providerValue.value) {
-    ProviderApi.listBaseModel(providerValue.value.provider, model_type, base_model_loading).then(
-      (ok) => {
-        base_model_list.value = ok.data
-      },
-    )
+  if (!providerValue.value) return
+  if (providerValue.value.provider === 'model_zhiyun_provider') {
+    modelApi
+      .listZhiyunBaseModels(model_type, modelValue.value?.id, base_model_loading)
+      .then((ok) => {
+        base_model_list.value = keepCurrentBaseModel(ok.data || [])
+      })
+    return
   }
+  ProviderApi.listBaseModel(providerValue.value.provider, model_type, base_model_loading).then(
+    (ok) => {
+      base_model_list.value = ok.data
+    },
+  )
 }
 const open = (provider: Provider, model: Model) => {
   modelValue.value = model

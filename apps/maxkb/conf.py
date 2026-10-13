@@ -63,6 +63,9 @@ class Config(dict):
         "PORTAL_SSO_DEFAULT_WORKSPACE": "default",
         "PORTAL_SSO_PORTAL_LOGIN_URL": "",
         "PORTAL_SSO_ALLOWED_TARGETS": "/home,/opportunity,/opportunity/records",
+        # Zhiyun TokenHub. Outbound calls still reject any address that is not
+        # the exact enterprise HTTPS gateway.
+        "ZHIYUN_API_BASE": "https://aigw.telecomjs.com/v1",
     }
 
     def get_debug(self) -> bool:

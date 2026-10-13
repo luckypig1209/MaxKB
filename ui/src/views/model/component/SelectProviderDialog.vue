@@ -39,7 +39,7 @@
       <el-col :span="12" class="mb-16" v-for="(data, index) in list_provider" :key="index">
         <el-card shadow="hover" @click="go_create(data)">
           <div class="flex align-center cursor">
-            <span :innerHTML="data.icon" alt="" style="height: 24px; width: 24px" class="mr-8" />
+            <span :innerHTML="data.icon" aria-hidden="true" class="mr-8 provider-mark" />
             <span>{{ data.name }}</span>
           </div>
         </el-card>
@@ -52,6 +52,7 @@ import { ref } from 'vue'
 import ProviderApi from '@/api/model/provider'
 import type { Provider } from '@/api/type/model'
 import { modelTypeList } from './data'
+import { pinZhiyunFirst } from '@/utils/array'
 import { t } from '@/locales'
 
 const loading = ref<boolean>(false)
@@ -78,8 +79,7 @@ const checkModelType = (model_type: string) => {
   selectModelType.value = model_type
   currentModelType.value = modelTypeOptions.filter((item) => item.value === model_type)[0].text
   ProviderApi.getProviderByModelType(model_type, loading).then((ok) => {
-    list_provider.value = ok.data
-    list_provider.value.sort((a, b) => a.provider.localeCompare(b.provider))
+    list_provider.value = pinZhiyunFirst(ok.data || [], (item) => item.provider)
   })
 }
 
@@ -90,4 +90,17 @@ const go_create = (provider: Provider) => {
 }
 defineExpose({ open, close })
 </script>
-<style lang="scss" scoped></style>
+<style lang="scss" scoped>
+.provider-mark {
+  display: inline-block;
+  flex: none;
+  width: 24px;
+  height: 24px;
+
+  :deep(svg) {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+}
+</style>

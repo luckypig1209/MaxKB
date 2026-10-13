@@ -53,12 +53,7 @@
             >
               <template #default="{ row }">
                 <div class="flex align-center">
-                  <span
-                    :innerHTML="row.icon"
-                    alt=""
-                    style="height: 20px; width: 20px"
-                    class="mr-8"
-                  />
+                  <span :innerHTML="row.icon" aria-hidden="true" class="mr-8 provider-mark" />
                   <span class="ellipsis-1" :title="row.name">{{ row.name }}</span>
                 </div>
               </template>
@@ -87,12 +82,7 @@
             >
               <template #default="{ row }">
                 <div class="flex align-center">
-                  <span
-                    :innerHTML="row.icon"
-                    alt=""
-                    style="height: 20px; width: 20px"
-                    class="mr-8"
-                  />
+                  <span :innerHTML="row.icon" aria-hidden="true" class="mr-8 provider-mark" />
                   <span class="ellipsis-1" :title="row.name">{{ row.name }}</span>
                 </div>
               </template>
@@ -109,6 +99,7 @@ import type { Provider, Model } from '@/api/type/model'
 import { modelTypeList, allObj } from '@/views/model/component/data'
 import { EditionConst } from '@/utils/permission/data'
 import { hasPermission } from '@/utils/permission/index'
+import { pinZhiyunFirst } from '@/utils/array'
 import { t } from '@/locales'
 const props = defineProps<{
   data: Array<Provider>
@@ -131,6 +122,8 @@ watch(
       'model_vllm_provider',
       'model_docker_ai_provider'
     ]
+    online_provider_list.value = []
+    local_provider_list.value = []
     list
       .filter((v) => v.provider)
       ?.forEach((item) => {
@@ -140,8 +133,8 @@ watch(
           online_provider_list.value.push(item)
         }
       })
-    online_provider_list.value.sort((a, b) => a.provider.localeCompare(b.provider))
-    local_provider_list.value.sort((a, b) => a.provider.localeCompare(b.provider))
+    online_provider_list.value = pinZhiyunFirst(online_provider_list.value, (item) => item.provider)
+    local_provider_list.value = pinZhiyunFirst(local_provider_list.value, (item) => item.provider)
   },
   { immediate: true },
 )
@@ -155,6 +148,19 @@ const handleSharedNodeClick = () => {
 }
 </script>
 <style lang="scss" scoped>
+.provider-mark {
+  display: inline-block;
+  flex: none;
+  width: 20px;
+  height: 20px;
+
+  :deep(svg) {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+}
+
 .provider-list {
   height: calc(var(--app-main-height));
   .all-mode {

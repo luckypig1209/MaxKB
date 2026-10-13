@@ -236,6 +236,7 @@ import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import type { Provider, BaseModel } from '@/api/type/model'
 import type { Dict, KeyValue } from '@/api/type/common'
+import modelApi from '@/api/model/model'
 import ProviderApi from '@/api/model/provider'
 import type { FormField } from '@/components/dynamics-form/type'
 import DynamicsForm from '@/components/dynamics-form/index.vue'
@@ -361,13 +362,18 @@ const list_base_model = (model_type: any, change?: boolean) => {
     base_form_data.value.model_name = ''
     base_form_data.value.model_params_form = []
   }
-  if (providerValue.value) {
-    ProviderApi.listBaseModel(providerValue.value.provider, model_type, base_model_loading).then(
-      (ok) => {
-        base_model_list.value = ok.data
-      },
-    )
+  if (!providerValue.value) return
+  if (providerValue.value.provider === 'model_zhiyun_provider') {
+    modelApi.listZhiyunBaseModels(model_type, undefined, base_model_loading).then((ok) => {
+      base_model_list.value = ok.data || []
+    })
+    return
   }
+  ProviderApi.listBaseModel(providerValue.value.provider, model_type, base_model_loading).then(
+    (ok) => {
+      base_model_list.value = ok.data
+    },
+  )
 }
 
 const close = () => {

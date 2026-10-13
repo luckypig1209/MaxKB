@@ -8,8 +8,8 @@
       v-bind="$attrs"
     >
       <el-option-group
-        v-for="(value, label) in options"
-        :key="value"
+        v-for="(value, label) in orderedOptions"
+        :key="label"
         :label="relatedObject(providerOptions, label, 'provider')?.name"
       >
         <el-option
@@ -22,7 +22,7 @@
           <el-space :size="8">
             <span
               :innerHTML="relatedObject(providerOptions, label, 'provider')?.icon"
-              class="select-model-icon"
+              aria-hidden="true" class="select-model-icon"
               style="margin-top: -7px"
             ></span>
             <span>{{ item.name }}</span>
@@ -47,7 +47,7 @@
           <el-space :size="8">
             <span
               :innerHTML="relatedObject(providerOptions, label, 'provider')?.icon"
-              class="select-model-icon"
+              aria-hidden="true" class="select-model-icon"
               style="margin-top: -7px"
             ></span>
             <span>{{ item.name }}</span>
@@ -62,7 +62,7 @@
       <template #label="{ label, value }">
         <el-space :size="8">
           <span
-            class="select-model-icon"
+            aria-hidden="true" class="select-model-icon"
             :innerHTML="relatedObject(providerOptions, getModelProvider(value), 'provider')?.icon"
           >
           </span>
@@ -100,7 +100,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue'
 import type { Provider } from '@/api/type/model'
-import { relatedObject } from '@/utils/array'
+import { relatedObject, orderProviderGroups } from '@/utils/array'
 import CreateModelDialog from '@/views/model/component/CreateModelDialog.vue'
 import SelectProviderDialog from '@/views/model/component/SelectProviderDialog.vue'
 import { flatMap } from 'lodash'
@@ -115,6 +115,8 @@ const props = defineProps<{
   showFooter?: boolean
   modelType?: string
 }>()
+
+const orderedOptions = computed<Record<string, any[]>>(() => orderProviderGroups(props.options || {}))
 
 const permissionPrecise = computed(() => {
   return permissionMap['model']['workspace']

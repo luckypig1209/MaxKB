@@ -125,6 +125,7 @@
           </el-row>
           <div class="form-actions">
             <el-button type="primary" :loading="saving" @click="saveSetting">{{ $t('views.opportunity.saveSetting') }}</el-button>
+            <el-button @click="zhiyunConnectRef?.open()">{{ $t('views.model.zhiyun.connect') }}</el-button>
             <el-button @click="$router.push('/model')">{{ $t('views.opportunity.goCreateModel') }}</el-button>
             <el-button @click="$router.push('/knowledge')">{{ $t('views.opportunity.goKnowledge') }}</el-button>
           </div>
@@ -332,6 +333,7 @@
         <el-button type="primary" @click="secretVisible = false">{{ $t('views.opportunity.secretSaved') }}</el-button>
       </template>
     </el-dialog>
+    <ZhiyunConnectDialog ref="zhiyunConnectRef" @synced="loadModels" />
   </div>
 </template>
 
@@ -342,6 +344,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { groupBy } from 'lodash'
 import ModelSelect from '@/components/model-select/index.vue'
+import ZhiyunConnectDialog from '@/views/model/component/ZhiyunConnectDialog.vue'
 import { loadSharedApi } from '@/utils/dynamics-api/shared-api'
 import opportunityApi from '@/api/opportunity'
 import useStore from '@/stores'
@@ -357,6 +360,7 @@ const TAB_NAMES = ['engine', 'department', 'product'] as const
 type TabName = (typeof TAB_NAMES)[number] | 'embed'
 
 const route = useRoute()
+const zhiyunConnectRef = ref<InstanceType<typeof ZhiyunConnectDialog>>()
 const router = useRouter()
 const { t } = useI18n()
 const { user } = useStore()
