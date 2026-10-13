@@ -159,6 +159,7 @@ import { useI18n } from 'vue-i18n'
 import opportunityApi from '@/api/opportunity'
 import type { OpportunityFollowUpStatus, OpportunityRecord } from '@/api/type/opportunity'
 import HxOverview from '../components/HxOverview.vue'
+import { formatOpportunityTime, toShanghaiDayEnd, toShanghaiDayStart } from '../utils/time'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -199,7 +200,7 @@ const statusLabel = (status: OpportunityFollowUpStatus) => t(`views.opportunity.
 const statusTag = (status: OpportunityFollowUpStatus) => ({
   PENDING: 'warning', FOLLOWING: 'primary', TRANSFERRED: 'info', CLOSED: 'success',
 }[status] as 'warning' | 'primary' | 'info' | 'success')
-const formatTime = (value?: string) => (value ? value.replace('T', ' ').slice(0, 16) : '-')
+const formatTime = formatOpportunityTime
 const normalizedScore = (score: unknown) => {
   const value = Number(score)
   return Number.isFinite(value) ? Math.round(Math.min(100, Math.max(0, value))) : 0
@@ -210,8 +211,8 @@ const requestParams = () => {
   if (filters.status) params.status = filters.status
   if (filters.product_code) params.product_code = filters.product_code
   if (filters.department_code) params.department_code = filters.department_code
-  if (filters.dateRange[0]) params.start_time = `${filters.dateRange[0]}T00:00:00`
-  if (filters.dateRange[1]) params.end_time = `${filters.dateRange[1]}T23:59:59`
+  if (filters.dateRange[0]) params.start_time = toShanghaiDayStart(filters.dateRange[0])
+  if (filters.dateRange[1]) params.end_time = toShanghaiDayEnd(filters.dateRange[1])
   return params
 }
 

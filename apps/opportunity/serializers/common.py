@@ -7,6 +7,7 @@
     @desc: 序列化公共方法
 """
 from django.db.models import QuerySet
+from django.utils import timezone
 
 from common.exception.app_exception import AppApiException
 from knowledge.models import Document, Knowledge
@@ -15,7 +16,12 @@ from opportunity.models import CaseProfile, DepartmentProfile, DepartmentStatus,
 
 
 def model_time(value):
-    return value.isoformat() if value else None
+    """Serialize a stored UTC time as ISO 8601 in the business timezone."""
+    if not value:
+        return None
+    if timezone.is_naive(value):
+        value = timezone.make_aware(value, timezone.get_default_timezone())
+    return timezone.localtime(value, timezone.get_default_timezone()).isoformat()
 
 
 def require_model(workspace_id, model_id, model_type=None):

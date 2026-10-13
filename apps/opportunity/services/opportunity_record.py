@@ -12,6 +12,7 @@ from opportunity.models import (
     OpportunityRecord,
     OpportunityReport,
 )
+from opportunity.serializers.common import model_time
 from opportunity.services.report import record_audit
 
 FOLLOW_UP_TRANSITIONS = {
@@ -50,7 +51,7 @@ def _report_reference(report):
         'id': str(report.id),
         'report_no': report.report_no,
         'version': report.version,
-        'create_time': report.create_time.isoformat() if report.create_time else None,
+        'create_time': model_time(report.create_time),
     }
 
 

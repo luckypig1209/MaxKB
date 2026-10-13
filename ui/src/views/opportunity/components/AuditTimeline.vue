@@ -15,6 +15,7 @@
 
 <script setup lang="ts">
 import type { OpportunityAnalysis } from '@/api/type/opportunity'
+import { formatOpportunityTime } from '../utils/time'
 
 defineProps<{
   logs: NonNullable<OpportunityAnalysis['audit_logs']>
@@ -34,7 +35,7 @@ const actionText = (action: string) => ({
   DECISION_NO_MATCH: '标记无匹配',
   DECISION_CANCEL: '取消商机',
 }[action] || action)
-const formatTime = (value?: string) => value ? value.replace('T', ' ').slice(0, 16) : '-'
+const formatTime = formatOpportunityTime
 const reason = (detail: Record<string, unknown>) => typeof detail?.reason === 'string' ? detail.reason : ''
 </script>
 

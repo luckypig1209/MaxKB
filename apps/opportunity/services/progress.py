@@ -83,7 +83,9 @@ def _isoformat(value):
     if value is None:
         return None
     if hasattr(value, 'isoformat'):
-        return value.isoformat()
+        from opportunity.serializers.common import model_time
+
+        return model_time(value)
     return str(value)
 
 
@@ -224,7 +226,7 @@ def _sanitize_progress_for_closed(payload: dict) -> dict:
     if _safe_int(data.get('percent'), 0) >= 100:
         data['percent'] = 99
     data['detail'] = data.get('detail') if data.get('detail') in ('分析已取消', '分析已关闭') else '分析已取消'
-    data['last_updated_at'] = data.get('last_updated_at') or timezone.now().isoformat()
+    data['last_updated_at'] = data.get('last_updated_at') or _isoformat(timezone.now())
     data['steps'] = build_steps(data.get('current') if data.get('current') in STAGE_KEYS else 'RANK', done=False)
     return data
 
@@ -275,7 +277,7 @@ def persist_snapshot(analysis, *, progress=None, snapshot_fields=None, status=No
                 payload = _sanitize_progress_for_closed(progress)
                 closed_detail = existing_progress.get('detail')
                 payload['detail'] = closed_detail if closed_detail in ('分析已取消', '分析已关闭') else '分析已取消'
-                payload['last_updated_at'] = timezone.now().isoformat()
+                payload['last_updated_at'] = _isoformat(timezone.now())
                 snapshot['progress'] = payload
             else:
                 snapshot['progress'] = dict(progress)
@@ -336,9 +338,9 @@ def start_new_attempt(analysis):
         'percent': 0,
         'completed_units': 0,
         'total_units': len(PROGRESS_STEPS),
-        'started_at': now.isoformat(),
-        'stage_started_at': now.isoformat(),
-        'last_updated_at': now.isoformat(),
+        'started_at': _isoformat(now),
+        'stage_started_at': _isoformat(now),
+        'last_updated_at': _isoformat(now),
         'elapsed_ms': 0,
         'counters': dict(EMPTY_COUNTERS),
         'timings': [],
@@ -403,7 +405,7 @@ class ProgressTracker:
             'total_units': self.total_units,
             'started_at': _isoformat(self.started_at),
             'stage_started_at': _isoformat(self.stage_started_at),
-            'last_updated_at': timezone.now().isoformat(),
+            'last_updated_at': _isoformat(timezone.now()),
             'elapsed_ms': self.elapsed_ms(),
             'counters': dict(self.counters),
             'timings': list(self.timings),
@@ -594,6 +596,6 @@ def mark_progress_cancelled(analysis, detail: str = '分析已取消'):
         'timings': existing.get('timings') or [],
     })
     progress['detail'] = detail
-    progress['last_updated_at'] = timezone.now().isoformat()
+    progress['last_updated_at'] = _isoformat(timezone.now())
     persist_snapshot(analysis, progress=progress)
     return progress

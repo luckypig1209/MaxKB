@@ -332,6 +332,7 @@ import type {
   ProductProfile,
 } from '@/api/type/opportunity'
 import HxOverview from '../components/HxOverview.vue'
+import { formatOpportunityTime } from '../utils/time'
 
 type CaseAction = 'SUBMIT_REVIEW' | 'APPROVE' | 'REJECT' | 'PUBLISH' | 'OFFLINE' | 'ARCHIVE'
 
@@ -390,7 +391,7 @@ const defaultForm = () => ({
 })
 
 const lines = (value: string) => value.split('\n').map((item) => item.trim()).filter(Boolean)
-const formatTime = (value?: string) => value ? value.replace('T', ' ').slice(0, 16) : '-'
+const formatTime = formatOpportunityTime
 const statusText = (status: CaseStatus) => t(`views.opportunity.cases.status.${status}`)
 const desensitizationText = (status: string) => t(`views.opportunity.cases.desensitization.${status}`)
 const statusTag = (status: CaseStatus) => {

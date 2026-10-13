@@ -8,6 +8,7 @@ from django.db.models import Max, QuerySet
 from django.utils import timezone
 
 from opportunity.models import OpportunityAuditLog, OpportunityFeedback, OpportunityReport
+from opportunity.serializers.common import model_time
 
 
 def record_audit(analysis, action, operator_user_id, detail=None):
@@ -43,7 +44,7 @@ def create_report_snapshot(analysis, generated_by=None):
             'model_snapshot': deepcopy(analysis.model_snapshot or {}),
             'knowledge_snapshot': deepcopy(analysis.knowledge_snapshot or {}),
             'rule_version': analysis.rule_version,
-            'generated_at': timezone.now().isoformat(),
+            'generated_at': model_time(timezone.now()),
         }
         report = OpportunityReport.objects.create(
             workspace_id=analysis.workspace_id,
@@ -86,7 +87,7 @@ def report_to_dict(report, include_snapshot=True):
         'version': report.version,
         'is_current': report.is_current,
         'generated_by': report.generated_by,
-        'create_time': report.create_time.isoformat() if report.create_time else None,
+        'create_time': model_time(report.create_time),
     }
     if include_snapshot:
         result['snapshot'] = report.snapshot or {}

@@ -37,6 +37,7 @@ from opportunity.services.progress import (
     requirement_text_metrics,
     start_new_attempt,
 )
+from opportunity.serializers.common import model_time
 from opportunity.services.prompts import MATCH_PROMPT_VERSION, REQUIREMENT_PROMPT_VERSION
 from opportunity.services.report import create_report_snapshot, record_audit, record_feedback
 from opportunity.services.requirement_history import save_requirement_profile_version
@@ -252,7 +253,7 @@ def _execute_tracked(analysis: OpportunityAnalysis, tracker: ProgressTracker):
         'search_mode': setting.search_mode,
         'top_n': setting.top_n,
         'similarity': setting.similarity,
-        'captured_at': timezone.now().isoformat(),
+        'captured_at': model_time(timezone.now()),
     }
     analysis.rule_version = RULE_VERSION
     persist_snapshot(
@@ -510,7 +511,7 @@ def submit_clarification(analysis: OpportunityAnalysis, answer: str):
     history.append({
         'answer': answer,
         'questions': analysis.clarification_questions or [],
-        'submitted_at': timezone.now().isoformat(),
+        'submitted_at': model_time(timezone.now()),
     })
     analysis.clarification_history = history
     analysis.status = AnalysisStatus.ANALYZING
@@ -568,7 +569,7 @@ def _apply_decision(analysis: OpportunityAnalysis, action: str, product_code=Non
     analysis.result_snapshot = {
         **snapshot,
         'confirm_reason': reason or '',
-        'confirmed_at': timezone.now().isoformat(),
+        'confirmed_at': model_time(timezone.now()),
         'decision': {'action': normalized, 'reason': reason or '', 'product_code': product_code},
     }
     analysis.save()

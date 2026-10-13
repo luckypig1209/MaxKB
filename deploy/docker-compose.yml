@@ -11,6 +11,8 @@ services:
       - .env
     environment:
       MAXKB_DEBUG: ${MAXKB_DEBUG:-false}
+      MAXKB_TIME_ZONE: ${MAXKB_TIME_ZONE:-Asia/Shanghai}
+      TZ: ${TZ:-Asia/Shanghai}
     healthcheck:
       test: ["CMD", "bash", "-c", "wait-for-it 127.0.0.1:8080 --timeout=5 --strict"]
       interval: 30s

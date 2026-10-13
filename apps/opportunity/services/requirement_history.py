@@ -6,6 +6,7 @@ from django.db import transaction
 from django.db.models import QuerySet
 
 from opportunity.models import OpportunityAnalysis, RequirementProfileSource, RequirementProfileVersion
+from opportunity.serializers.common import model_time
 
 
 def save_requirement_profile_version(
@@ -50,7 +51,7 @@ def requirement_version_to_dict(item: RequirementProfileVersion, include_profile
         'source': item.source,
         'clarification_round': item.clarification_round,
         'operator_user_id': item.operator_user_id,
-        'create_time': item.create_time.isoformat() if item.create_time else None,
+        'create_time': model_time(item.create_time),
     }
     if include_profile:
         data['profile'] = item.profile or {}

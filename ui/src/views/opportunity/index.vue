@@ -132,6 +132,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import opportunityApi from '@/api/opportunity'
 import type { CandidateResult, EvidenceItem, OpportunityAnalysis } from '@/api/type/opportunity'
+import { formatOpportunityTime } from './utils/time'
 import { shouldRefreshHistory, useAnalysisPolling } from './composables/useAnalysisPolling'
 import RequirementInput from './components/RequirementInput.vue'
 import AnalysisProgress from './components/AnalysisProgress.vue'
@@ -210,7 +211,7 @@ const statusTone = (status?: string) => {
   return ''
 }
 
-const formatTime = (value?: string) => (value ? value.replace('T', ' ').slice(0, 16) : '-')
+const formatTime = formatOpportunityTime
 
 const statusLabel = (status?: string) => {
   const map: Record<string, string> = {

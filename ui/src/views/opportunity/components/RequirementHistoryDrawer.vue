@@ -23,6 +23,7 @@
 import { computed, ref } from 'vue'
 import opportunityApi from '@/api/opportunity'
 import type { RequirementProfileVersion } from '@/api/type/opportunity'
+import { formatOpportunityTime } from '../utils/time'
 
 const props = defineProps<{ modelValue: boolean; analysisId?: string }>()
 const emit = defineEmits<{ (e: 'update:modelValue', value: boolean): void }>()
@@ -41,7 +42,7 @@ const load = () => {
 }
 const sourceText = (source: RequirementProfileVersion['source']) =>
   source === 'CLARIFICATION' ? '参数补充后' : '首次解析'
-const formatTime = (value?: string) => value ? value.replace('T', ' ').slice(0, 16) : '-'
+const formatTime = formatOpportunityTime
 const requirementText = (item: RequirementProfileVersion) =>
   item.profile.requirements.map((requirement) => requirement.description).join('；') || '-'
 </script>
