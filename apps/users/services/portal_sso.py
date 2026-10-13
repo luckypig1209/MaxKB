@@ -1106,15 +1106,21 @@ def _resolve_portal_user(
                 "update_time",
             ]
         )
+        provision = "reused"
+        if user.role in {
+            RoleConstants.ADMIN.value.name,
+            RoleConstants.WORKSPACE_MANAGE.value.name,
+        }:
+            provision = "reused_explicit_privileged_mapping"
         _audit(
             "provision",
-            "reused",
+            provision,
             request_id or "",
             config.client_id,
             user_id=str(user.id),
             external_user_id=external_id,
             policy=config.existing_user_policy,
-            provision="reused",
+            provision=provision,
         )
         return user, identity
 

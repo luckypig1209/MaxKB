@@ -1,5 +1,6 @@
 import importlib
 import json
+import threading
 import time
 from io import StringIO
 from unittest.mock import patch
@@ -11,9 +12,9 @@ from common.constants.cache_version import Cache_Version
 from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models.deletion import ProtectedError
-from django.test import TestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings
 from maxkb.const import CONFIG
 from users.models import User
 from users.models.external_identity import UserExternalIdentity
@@ -980,6 +981,206 @@ class PortalSSOStatefulTests(TestCase):
         self.assertTrue(all(len(name) <= 30 for name in migration_index_names))
 
 
+
+    def _explicit_admin(self):
+        return User.objects.create(
+            username="explicit-admin",
+            nick_name="Explicit Admin",
+            email=None,
+            password="!",
+            role="ADMIN",
+            source="LOCAL",
+            is_active=True,
+        )
+
+    def _isolated_identity(self, admin, external_id="explicit-ext"):
+        isolated = User.objects.create(
+            username="portal_" + "ef" * 24,
+            nick_name="Explicit Isolated",
+            email=None,
+            password="!",
+            role="USER",
+            source="PORTAL",
+            is_active=True,
+        )
+        identity = UserExternalIdentity.objects.create(
+            provider="PORTAL",
+            external_user_id=external_id,
+            external_username="name-secret-do-not-print",
+            display_name="display-secret-do-not-print",
+            user=isolated,
+            status=UserExternalIdentity.Status.ACTIVE,
+            meta={"ticket": "ticket-secret-do-not-print"},
+        )
+        call_command(
+            "portal_sso_rebind",
+            provider="PORTAL",
+            external_user_id=external_id,
+            from_user=str(isolated.id),
+            to_user=str(admin.id),
+            apply=True,
+            disable_source_user=True,
+            allow_privileged_target=True,
+            confirm_target_user_id=str(admin.id),
+            stdout=StringIO(),
+        )
+        isolated.refresh_from_db()
+        identity.refresh_from_db()
+        return isolated, identity
+
+    def test_explicit_admin_mapping_reuses_the_same_account(self):
+        admin = self._explicit_admin()
+        isolated, identity = self._isolated_identity(admin)
+        config = self._policy_config()
+        users_before = User.objects.count()
+        identities_before = UserExternalIdentity.objects.count()
+
+        token_data, _file_token = self._exchange_named(
+            config, "explicit-ext", "name-secret-do-not-print", nonce="nonce-explicit-ext-0001"
+        )
+        self.assertEqual(TokenDetails(token_data["token"]).get_token_details()["id"], str(admin.id))
+        token_data, _file_token = self._exchange_named(
+            config, "explicit-ext", "renamed-portal-person", nonce="nonce-explicit-ext-0002"
+        )
+        self.assertEqual(TokenDetails(token_data["token"]).get_token_details()["id"], str(admin.id))
+        self.assertEqual(User.objects.count(), users_before)
+        self.assertEqual(UserExternalIdentity.objects.count(), identities_before)
+        identity.refresh_from_db()
+        self.assertEqual(identity.user_id, admin.id)
+        self.assertEqual(UserExternalIdentity.objects.filter(provider="PORTAL", user=admin).count(), 1)
+        isolated.refresh_from_db()
+        self.assertFalse(isolated.is_active)
+        self.assertTrue(User.objects.filter(id=isolated.id).exists())
+
+    def test_unmapped_admin_name_stays_isolated_and_reject_creates_nothing(self):
+        admin = self._explicit_admin()
+        config = self._policy_config()
+        before = User.objects.count()
+        self._exchange_named(config, "explicit-admin", "explicit-admin", nonce="nonce-explicit-admin-001")
+        identity = UserExternalIdentity.objects.get(provider="PORTAL", external_user_id="explicit-admin")
+        self.assertNotEqual(identity.user_id, admin.id)
+        self.assertEqual(identity.user.role, "USER")
+        self.assertEqual(identity.user.source, "PORTAL")
+        self.assertTrue(identity.user.username.startswith("portal_"))
+        self.assertGreater(User.objects.count(), before)
+
+        reject = self._policy_config(policy="REJECT")
+        users_before = User.objects.count()
+        with self.assertRaises(PortalSSOServiceError) as caught:
+            self._exchange_named(reject, "reject-admin-ext", "explicit-admin", nonce="nonce-reject-admin-0001")
+        self.assertEqual(caught.exception.code, PortalSSOErrorCode.BIND_REQUIRED)
+        self.assertEqual(User.objects.count(), users_before)
+        self.assertFalse(
+            UserExternalIdentity.objects.filter(provider="PORTAL", external_user_id="reject-admin-ext").exists()
+        )
+
+    def test_ordinary_same_name_does_not_take_over_local_user(self):
+        local = User.objects.create(
+            username="ordinary-explicit",
+            nick_name="Ordinary Explicit",
+            email="ordinary-explicit@example.test",
+            password="!",
+            role="USER",
+            source="LOCAL",
+            is_active=True,
+        )
+        self._exchange_named(
+            self._policy_config(), "ordinary-explicit", "ordinary-explicit", nonce="nonce-ordinary-explicit-1"
+        )
+        identity = UserExternalIdentity.objects.get(provider="PORTAL", external_user_id="ordinary-explicit")
+        self.assertNotEqual(identity.user_id, local.id)
+        self.assertEqual(identity.user.role, "USER")
+        self.assertEqual(identity.user.source, "PORTAL")
+
+    def test_disabled_admin_rejects_portal_login(self):
+        admin = self._explicit_admin()
+        self._isolated_identity(admin)
+        admin.is_active = False
+        admin.save(update_fields=["is_active", "update_time"])
+        with self.assertRaises(PortalSSOServiceError) as caught:
+            self._exchange_named(self._policy_config(), "explicit-ext", "explicit-admin", nonce="nonce-disabled-admin-01")
+        self.assertEqual(caught.exception.code, PortalSSOErrorCode.USER_DISABLED)
+
+    def test_local_admin_password_login_survives_rebind(self):
+        from users.serializers.login import LoginSerializer
+
+        admin = self._explicit_admin()
+        admin.set_password("LocalAdminSecret1")
+        admin.save(update_fields=["password", "update_time"])
+        password_hash = admin.password
+        self._isolated_identity(admin)
+        admin.refresh_from_db()
+        self.assertEqual(admin.password, password_hash)
+        self.assertEqual(admin.role, "ADMIN")
+        self.assertEqual(admin.source, "LOCAL")
+        token_data, _file_token = LoginSerializer.login(
+            {"username": admin.username, "password": "LocalAdminSecret1"}
+        )
+        self.assertEqual(TokenDetails(token_data["token"]).get_token_details()["id"], str(admin.id))
+
+    def test_rebound_admin_ticket_cannot_be_replayed(self):
+        admin = self._explicit_admin()
+        self._isolated_identity(admin)
+        config = self._policy_config()
+        ticket = self._issue(
+            config=config,
+            body={"external_user_id": "explicit-ext", "username": "explicit-admin", "target": "/opportunity"},
+            nonce="nonce-replay-admin-0001",
+        )
+        exchange_portal_ticket(ticket["ticket"], config=config, rate_limit_subject="explicit-replay")
+        with self.assertRaises(PortalSSOServiceError) as replay:
+            exchange_portal_ticket(ticket["ticket"], config=config, rate_limit_subject="explicit-replay-2")
+        self.assertEqual(replay.exception.code, PortalSSOErrorCode.TICKET_INVALID)
+
+    @patch("common.utils.logger.maxkb_logger.info")
+    def test_privileged_reuse_audit_omits_raw_identity(self, info):
+        admin = self._explicit_admin()
+        self._isolated_identity(admin)
+        self._exchange_named(
+            self._policy_config(), "explicit-ext", "name-secret-do-not-print", nonce="nonce-audit-admin-00001"
+        )
+        logged = " ".join(str(part) for call in info.call_args_list for part in call.args)
+        self.assertIn("reused_explicit_privileged_mapping", logged)
+        self.assertIn(str(admin.id), logged)
+        self.assertNotIn("name-secret-do-not-print", logged)
+        self.assertNotIn("display-secret-do-not-print", logged)
+        self.assertNotIn("ticket-secret-do-not-print", logged)
+        self.assertNotIn("LocalAdminSecret1", logged)
+
+    def test_rebound_admin_sees_owned_knowledge_and_isolated_user_does_not(self):
+        from knowledge.models.knowledge import Knowledge, KnowledgeFolder
+        from knowledge.serializers.knowledge import KnowledgeSerializer
+
+        admin = self._explicit_admin()
+        isolated, _identity = self._isolated_identity(admin)
+        workspace_id = "rebind-kb"
+        folder = KnowledgeFolder.objects.create(id=workspace_id, name="管理员资料", workspace_id=workspace_id)
+        knowledge = Knowledge.objects.create(
+            name="管理员知识库",
+            desc="",
+            workspace_id=workspace_id,
+            folder=folder,
+            user=admin,
+        )
+        admin_rows = KnowledgeSerializer.Query(
+            data={"workspace_id": workspace_id, "folder_id": workspace_id, "scope": "WORKSPACE", "user_id": admin.id}
+        ).list()
+        isolated_rows = KnowledgeSerializer.Query(
+            data={
+                "workspace_id": workspace_id,
+                "folder_id": workspace_id,
+                "scope": "WORKSPACE",
+                "user_id": isolated.id,
+            }
+        ).list()
+        admin_dump = json.dumps(admin_rows, default=str)
+        isolated_dump = json.dumps(isolated_rows, default=str)
+        self.assertIn(str(knowledge.id), admin_dump)
+        self.assertNotIn(str(knowledge.id), isolated_dump)
+        knowledge.refresh_from_db()
+        self.assertEqual(knowledge.user_id, admin.id)
+
+
 class PortalSSOEndpointContractTests(TestCase):
     def setUp(self):
         self.config = PortalSSOConfig(
@@ -1390,3 +1591,407 @@ class PortalSSORepairDisplayNameTests(TestCase):
         call_command("portal_sso_repair_display_names", stdout=again)
         self.assertIn("candidates=0", again.getvalue())
         self.assertIn("updated=0", again.getvalue())
+
+
+class PortalSSORebindCommandTests(TestCase):
+    def _pair(
+        self,
+        suffix="ab",
+        *,
+        target_role="USER",
+        target_source="LOCAL",
+        source_role="USER",
+        source_source="PORTAL",
+        external_id="rebind-ext",
+        target_username="rebind-target",
+        target_nick="Rebind Target",
+    ):
+        source = User.objects.create(
+            username="portal_" + (suffix * 24)[:48],
+            nick_name=f"Isolated {suffix}",
+            email=None,
+            password="pw-secret-do-not-print",
+            role=source_role,
+            source=source_source,
+            is_active=True,
+        )
+        target = User.objects.create(
+            username=target_username,
+            nick_name=target_nick,
+            email=None,
+            password="pw-secret-do-not-print",
+            role=target_role,
+            source=target_source,
+            is_active=True,
+        )
+        identity = UserExternalIdentity.objects.create(
+            provider="PORTAL",
+            external_user_id=external_id,
+            external_username="name-secret-do-not-print",
+            display_name="display-secret-do-not-print",
+            user=source,
+            status=UserExternalIdentity.Status.ACTIVE,
+            meta={"ticket": "ticket-secret-do-not-print", "signature": "signature-secret-do-not-print"},
+        )
+        return source, target, identity
+
+    def _profile(self, user):
+        user.refresh_from_db()
+        return (user.username, user.nick_name, user.password, user.role, user.source, user.email, user.phone)
+
+    def _command(self, source, target, external_id="rebind-ext", **overrides):
+        options = {
+            "provider": "PORTAL",
+            "external_user_id": external_id,
+            "from_user": str(source.id),
+            "to_user": str(target.id),
+        }
+        options.update(overrides)
+        output = StringIO()
+        call_command("portal_sso_rebind", stdout=output, **options)
+        return output.getvalue()
+
+    def _assert_secret_free(self, text):
+        self.assertNotIn("pw-secret-do-not-print", text)
+        self.assertNotIn("name-secret-do-not-print", text)
+        self.assertNotIn("display-secret-do-not-print", text)
+        self.assertNotIn("ticket-secret-do-not-print", text)
+        self.assertNotIn("signature-secret-do-not-print", text)
+        self.assertNotIn("cookie-secret-do-not-print", text)
+
+    def test_preview_does_not_write(self):
+        source, target, identity = self._pair()
+        before = self._profile(target)
+        meta = dict(identity.meta)
+        users_before = User.objects.count()
+        text = self._command(source, target)
+        self.assertIn("mode=preview", text)
+        self.assertIn("outcome=ready", text)
+        self.assertIn("mapping_updates=1", text)
+        self.assertIn("users_created=0", text)
+        self.assertIn("users_deleted=0", text)
+        self.assertIn("target_profile_changed=false", text)
+        self._assert_secret_free(text)
+        identity.refresh_from_db()
+        source.refresh_from_db()
+        self.assertEqual(identity.user_id, source.id)
+        self.assertEqual(identity.meta, meta)
+        self.assertEqual(identity.external_username, "name-secret-do-not-print")
+        self.assertTrue(source.is_active)
+        self.assertEqual(self._profile(target), before)
+        self.assertEqual(User.objects.count(), users_before)
+
+    def test_flags_without_apply_do_not_write(self):
+        source, target, identity = self._pair(target_role="ADMIN", target_username="rebind-admin", target_nick="Rebind Admin")
+        text = self._command(
+            source,
+            target,
+            disable_source_user=True,
+            allow_privileged_target=True,
+            confirm_target_user_id=str(target.id),
+        )
+        self.assertIn("mode=preview", text)
+        self.assertIn("source_users_disabled=1", text)
+        identity.refresh_from_db()
+        source.refresh_from_db()
+        self.assertEqual(identity.user_id, source.id)
+        self.assertTrue(source.is_active)
+        self.assertNotIn("last_rebind_from_user_id", identity.meta)
+
+    def test_ordinary_rebind_disables_isolated_source_without_deleting_it(self):
+        source, target, identity = self._pair()
+        target_profile = self._profile(target)
+        users_before = User.objects.count()
+        text = self._command(source, target, apply=True, disable_source_user=True)
+        self.assertIn("mode=apply", text)
+        self.assertIn("outcome=applied", text)
+        self.assertIn("mapping_updates=1", text)
+        self.assertIn("source_users_disabled=1", text)
+        self._assert_secret_free(text)
+        identity.refresh_from_db()
+        source.refresh_from_db()
+        self.assertEqual(identity.user_id, target.id)
+        self.assertEqual(identity.external_username, "name-secret-do-not-print")
+        self.assertEqual(identity.display_name, "display-secret-do-not-print")
+        self.assertEqual(identity.meta["last_rebind_from_user_id"], str(source.id))
+        self.assertEqual(identity.meta["last_rebind_reason"], "portal_admin_explicit_binding")
+        self.assertNotIn(source.username, identity.meta["last_rebind_from_user_id"])
+        self.assertFalse(source.is_active)
+        self.assertTrue(User.objects.filter(id=source.id).exists())
+        self.assertEqual(User.objects.count(), users_before)
+        self.assertEqual(self._profile(target), target_profile)
+
+    def test_privileged_target_requires_exact_confirmation(self):
+        source, target, identity = self._pair(
+            target_role="ADMIN", target_username="rebind-admin", target_nick="Rebind Admin"
+        )
+        with self.assertRaises(CommandError):
+            self._command(source, target, apply=True, disable_source_user=True, confirm_target_user_id=str(target.id))
+        with self.assertRaises(CommandError):
+            self._command(
+                source,
+                target,
+                apply=True,
+                disable_source_user=True,
+                allow_privileged_target=True,
+            )
+        with self.assertRaises(CommandError):
+            self._command(
+                source,
+                target,
+                apply=True,
+                disable_source_user=True,
+                allow_privileged_target=True,
+                confirm_target_user_id=target.username,
+            )
+        identity.refresh_from_db()
+        source.refresh_from_db()
+        self.assertEqual(identity.user_id, source.id)
+        self.assertTrue(source.is_active)
+
+    def test_confirmed_admin_rebind_is_idempotent(self):
+        source, target, identity = self._pair(
+            target_role="ADMIN", target_username="rebind-admin", target_nick="Rebind Admin"
+        )
+        kwargs = dict(
+            apply=True,
+            disable_source_user=True,
+            allow_privileged_target=True,
+            confirm_target_user_id=str(target.id),
+        )
+        self._command(source, target, **kwargs)
+        identity.refresh_from_db()
+        rebound_at = identity.meta["last_rebind_at"]
+        users_before = User.objects.count()
+        text = self._command(source, target, **kwargs)
+        self.assertIn("outcome=idempotent", text)
+        self.assertIn("mapping_updates=0", text)
+        identity.refresh_from_db()
+        source.refresh_from_db()
+        self.assertEqual(identity.user_id, target.id)
+        self.assertEqual(identity.meta["last_rebind_at"], rebound_at)
+        self.assertFalse(source.is_active)
+        self.assertEqual(User.objects.count(), users_before)
+        self.assertEqual(UserExternalIdentity.objects.filter(provider="PORTAL").count(), 1)
+
+    def test_from_user_mismatch_and_existing_target_mapping_fail(self):
+        source, target, identity = self._pair()
+        other = User.objects.create(
+            username="rebind-other",
+            nick_name="Rebind Other",
+            email=None,
+            password="!",
+            role="USER",
+            source="LOCAL",
+            is_active=True,
+        )
+        with self.assertRaises(CommandError):
+            self._command(other, target, apply=True, disable_source_user=True)
+        occupied = User.objects.create(
+            username="rebind-occupied",
+            nick_name="Rebind Occupied",
+            email=None,
+            password="!",
+            role="USER",
+            source="LOCAL",
+            is_active=True,
+        )
+        UserExternalIdentity.objects.create(
+            provider="PORTAL",
+            external_user_id="occupied-ext",
+            user=occupied,
+            status=UserExternalIdentity.Status.ACTIVE,
+        )
+        with self.assertRaises(CommandError):
+            self._command(source, occupied, apply=True, disable_source_user=True)
+        identity.refresh_from_db()
+        self.assertEqual(identity.user_id, source.id)
+
+    def test_non_isolated_source_cannot_be_disabled(self):
+        local, target, identity = self._pair(
+            suffix="cd",
+            source_source="LOCAL",
+            target_username="rebind-local-target",
+            target_nick="Rebind Local Target",
+        )
+        with self.assertRaises(CommandError):
+            self._command(local, target, apply=True, disable_source_user=True)
+        admin_source, admin_target, admin_identity = self._pair(
+            suffix="gh",
+            source_role="ADMIN",
+            source_source="LOCAL",
+            external_id="admin-source-ext",
+            target_username="rebind-admin-target",
+            target_nick="Rebind Admin Target",
+        )
+        with self.assertRaises(CommandError):
+            self._command(admin_source, admin_target, external_id="admin-source-ext", apply=True, disable_source_user=True)
+        identity.refresh_from_db()
+        admin_identity.refresh_from_db()
+        local.refresh_from_db()
+        admin_source.refresh_from_db()
+        self.assertEqual(identity.user_id, local.id)
+        self.assertEqual(admin_identity.user_id, admin_source.id)
+        self.assertTrue(local.is_active)
+        self.assertTrue(admin_source.is_active)
+
+    def test_failed_disable_rolls_back_the_owner_change(self):
+        source, target, identity = self._pair(suffix="ij", external_id="rollback-ext", target_username="rollback-target", target_nick="Rollback Target")
+        UserExternalIdentity.objects.create(
+            provider="OTHER",
+            external_user_id="other-ext",
+            user=source,
+            status=UserExternalIdentity.Status.ACTIVE,
+        )
+        with self.assertRaises(CommandError):
+            self._command(source, target, external_id="rollback-ext", apply=True, disable_source_user=True)
+        identity.refresh_from_db()
+        source.refresh_from_db()
+        self.assertEqual(identity.user_id, source.id)
+        self.assertNotIn("last_rebind_from_user_id", identity.meta)
+        self.assertTrue(source.is_active)
+
+    def test_missing_mapping_is_not_created(self):
+        source, target, _identity = self._pair(external_id="present-ext")
+        before = UserExternalIdentity.objects.count()
+        with self.assertRaises(CommandError):
+            self._command(source, target, external_id="missing-ext", apply=True, disable_source_user=True)
+        self.assertEqual(UserExternalIdentity.objects.count(), before)
+        self.assertFalse(UserExternalIdentity.objects.filter(external_user_id="missing-ext").exists())
+
+    def test_rollback_reenables_only_an_isolated_portal_user(self):
+        source, target, identity = self._pair(suffix="kl", external_id="reverse-ext", target_username="reverse-target", target_nick="Reverse Target")
+        target_profile = self._profile(target)
+        self._command(source, target, external_id="reverse-ext", apply=True, disable_source_user=True)
+        text = self._command(
+            target,
+            source,
+            external_id="reverse-ext",
+            apply=True,
+            enable_target_user=True,
+        )
+        self.assertIn("outcome=applied", text)
+        self.assertIn("target_users_enabled=1", text)
+        identity.refresh_from_db()
+        source.refresh_from_db()
+        self.assertEqual(identity.user_id, source.id)
+        self.assertTrue(source.is_active)
+        self.assertEqual(identity.meta["last_rebind_from_user_id"], str(target.id))
+        self.assertEqual(self._profile(target), target_profile)
+
+        admin = User.objects.create(
+            username="enable-admin",
+            nick_name="Enable Admin",
+            email=None,
+            password="!",
+            role="ADMIN",
+            source="LOCAL",
+            is_active=False,
+        )
+        with self.assertRaises(CommandError):
+            self._command(
+                source,
+                admin,
+                external_id="reverse-ext",
+                apply=True,
+                enable_target_user=True,
+                allow_privileged_target=True,
+                confirm_target_user_id=str(admin.id),
+            )
+        admin.refresh_from_db()
+        identity.refresh_from_db()
+        self.assertFalse(admin.is_active)
+        self.assertEqual(identity.user_id, source.id)
+
+    @patch("common.utils.logger.maxkb_logger.info")
+    def test_apply_log_omits_secrets(self, info):
+        source, target, _identity = self._pair(suffix="mn", external_id="id-secret-do-not-print", target_username="secret-target", target_nick="Secret Target")
+        text = self._command(
+            source,
+            target,
+            external_id="id-secret-do-not-print",
+            apply=True,
+            disable_source_user=True,
+        )
+        logged = " ".join(str(part) for call in info.call_args_list for part in call.args)
+        self._assert_secret_free(text)
+        self._assert_secret_free(logged)
+        self.assertNotIn("id-secret-do-not-print", text)
+        self.assertNotIn("id-secret-do-not-print", logged)
+        self.assertIn("explicit_rebind", logged)
+        self.assertIn(str(target.id), logged)
+
+
+class PortalSSORebindConcurrencyTests(TransactionTestCase):
+    """Commit so two threads can lock the same identity.
+
+    Teardown deletes only the rows this test created. A full flush would remove
+    the migrated default admin from the kept test database.
+    """
+
+    def _fixture_teardown(self):
+        UserExternalIdentity.objects.filter(provider="PORTAL", external_user_id="concurrent-ext").delete()
+        User.objects.filter(username__in=["portal_" + "zz" * 24, "concurrent-target"]).delete()
+
+    def test_parallel_rebind_keeps_a_single_mapping(self):
+        source = User.objects.create(
+            username="portal_" + "zz" * 24,
+            nick_name="Concurrent Isolated",
+            email=None,
+            password="!",
+            role="USER",
+            source="PORTAL",
+            is_active=True,
+        )
+        target = User.objects.create(
+            username="concurrent-target",
+            nick_name="Concurrent Target",
+            email=None,
+            password="!",
+            role="USER",
+            source="LOCAL",
+            is_active=True,
+        )
+        UserExternalIdentity.objects.create(
+            provider="PORTAL",
+            external_user_id="concurrent-ext",
+            user=source,
+            status=UserExternalIdentity.Status.ACTIVE,
+            meta={},
+        )
+        connection.close()
+        barrier = threading.Barrier(2)
+        errors = []
+
+        def run():
+            try:
+                barrier.wait(timeout=10)
+                call_command(
+                    "portal_sso_rebind",
+                    provider="PORTAL",
+                    external_user_id="concurrent-ext",
+                    from_user=str(source.id),
+                    to_user=str(target.id),
+                    apply=True,
+                    disable_source_user=True,
+                    stdout=StringIO(),
+                )
+            except Exception as exc:  # noqa: BLE001 - the assertion below reports the thread failure.
+                errors.append(exc)
+            finally:
+                connection.close()
+
+        workers = [threading.Thread(target=run), threading.Thread(target=run)]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(timeout=30)
+
+        self.assertFalse(any(worker.is_alive() for worker in workers))
+        self.assertEqual(errors, [])
+        identity = UserExternalIdentity.objects.get(provider="PORTAL", external_user_id="concurrent-ext")
+        self.assertEqual(UserExternalIdentity.objects.filter(provider="PORTAL", external_user_id="concurrent-ext").count(), 1)
+        self.assertEqual(identity.user_id, target.id)
+        source.refresh_from_db()
+        self.assertFalse(source.is_active)
+        self.assertTrue(User.objects.filter(id=source.id).exists())
